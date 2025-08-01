@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { Download, ArrowLeft, FileText } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
-const API_URL = 'http://localhost:4000/api/search';
+const API_URL = 'https://prosperiantest1.onrender.com/api/search';
 
 const SocieteDetails: React.FC = () => {
   const { id } = useParams<{ id: string }>();

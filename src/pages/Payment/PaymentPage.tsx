@@ -43,7 +43,7 @@ export const PaymentPage: React.FC = () => {
         setError(null);
 
         if (type === 'subscription' && subscriptionId) {
-          const response = await fetch(`http://localhost:4000/api/payment/subscriptions/${subscriptionId}`, {
+          const response = await fetch(`https://prosperiantest1.onrender.com/api/payment/subscriptions/${subscriptionId}`, {
             headers: {
               'Authorization': `Bearer ${localStorage.getItem('token')}`
             }
@@ -56,7 +56,7 @@ export const PaymentPage: React.FC = () => {
           const data = await response.json();
           setSubscription(data.subscription);
         } else if (type === 'credit_pack' && packId) {
-          const response = await fetch(`http://localhost:4000/api/payment/credit-packs/${packId}`, {
+          const response = await fetch(`https://prosperiantest1.onrender.com/api/payment/credit-packs/${packId}`, {
             headers: {
               'Authorization': `Bearer ${localStorage.getItem('token')}`
             }
@@ -110,7 +110,7 @@ export const PaymentPage: React.FC = () => {
 
       if (type === 'subscription' && subscriptionId) {
         // Créer une session de paiement pour l'abonnement
-        const response = await fetch('http://localhost:4000/api/payment/create-subscription', {
+        const response = await fetch('https://prosperiantest1.onrender.com/api/payment/create-subscription', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -137,7 +137,7 @@ export const PaymentPage: React.FC = () => {
 
       } else if (type === 'credit_pack' && packId) {
         // Créer une intention de paiement pour le pack de crédits
-        const response = await fetch('http://localhost:4000/api/payment/create-payment-intent', {
+        const response = await fetch('https://prosperiantest1.onrender.com/api/payment/create-payment-intent', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',

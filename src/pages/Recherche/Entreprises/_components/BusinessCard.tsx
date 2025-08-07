@@ -202,7 +202,7 @@ export const BusinessCard: React.FC<BusinessCardProps> = ({
         
         if (data.found) {
           setProntoEnrichment(data);
-          console.log(`✅ Enrichissement Pronto réussi pour: ${companyName}`);
+          // console.log(`✅ Enrichissement Pronto réussi pour: ${companyName}`);
         } else {
           console.log(`⚠️ Aucune donnée Pronto trouvée pour: ${companyName}`);
         }

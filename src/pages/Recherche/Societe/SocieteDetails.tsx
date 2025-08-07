@@ -105,7 +105,7 @@ const enrichWithPronto = async (companyName: string): Promise<ProntoEnrichmentRe
   }
   
   try {
-    const response = await fetch(`/api/pronto/companies/enrich?name=${encodeURIComponent(companyName)}`, {
+    const response = await fetch(`https://prosperian.onrender.com/api/pronto/companies/enrich?name=${encodeURIComponent(companyName)}`, {
       method: 'GET',
       headers: {
         'accept': 'application/json'

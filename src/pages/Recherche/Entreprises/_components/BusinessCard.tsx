@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { MapPin, Phone, Users, Star, ExternalLink, Building, Globe, Mail, Linkedin, Facebook, User } from 'lucide-react';
 import { BusinessWithProntoData, ProntoLeadWithCompany } from '@entities/Business';
@@ -12,6 +12,118 @@ interface BusinessCardProps {
   isProntoData?: boolean;
   loading?: boolean;
 }
+
+// Interface pour la réponse de l'endpoint d'enrichissement Pronto
+interface ProntoEnrichmentResponse {
+  found: boolean;
+  name?: string;
+  description?: string;
+  industry?: string;
+  website?: string;
+  employeeCount?: number;
+  headquarters?: {
+    city?: string;
+    country?: string;
+    line1?: string;
+    postalCode?: string;
+  };
+  companyPictureDisplayImage?: {
+    artifacts: Array<{
+      width: number;
+      height: number;
+      fileIdentifyingUrlPathSegment: string;
+    }>;
+    rootUrl: string;
+  };
+  // Autres champs possibles...
+}
+
+// Interface pour le stockage localStorage
+interface ProntoEnrichmentCache {
+  [companyName: string]: {
+    data: ProntoEnrichmentResponse;
+    timestamp: number;
+  };
+}
+
+// Clé pour le localStorage
+const PRONTO_ENRICHMENT_CACHE_KEY = 'pronto_enrichment_cache';
+const CACHE_DURATION = 24 * 60 * 60 * 1000; // 24 heures en millisecondes
+
+// Fonctions utilitaires pour le cache localStorage
+const getEnrichmentCache = (): ProntoEnrichmentCache => {
+  try {
+    const cached = localStorage.getItem(PRONTO_ENRICHMENT_CACHE_KEY);
+    return cached ? JSON.parse(cached) : {};
+  } catch (error) {
+    console.error('❌ Erreur lors de la lecture du cache localStorage:', error);
+    return {};
+  }
+};
+
+const setEnrichmentCache = (cache: ProntoEnrichmentCache): void => {
+  try {
+    localStorage.setItem(PRONTO_ENRICHMENT_CACHE_KEY, JSON.stringify(cache));
+  } catch (error) {
+    console.error('❌ Erreur lors de l\'écriture du cache localStorage:', error);
+  }
+};
+
+const getCachedEnrichment = (companyName: string): ProntoEnrichmentResponse | null => {
+  const cache = getEnrichmentCache();
+  const cached = cache[companyName];
+  
+  if (cached) {
+    const now = Date.now();
+    const isExpired = (now - cached.timestamp) > CACHE_DURATION;
+    
+    if (!isExpired) {
+      console.log(`📦 Données Pronto récupérées du cache pour: ${companyName}`);
+      return cached.data;
+    } else {
+      console.log(`⏰ Cache expiré pour: ${companyName}`);
+      // Supprimer l'entrée expirée
+      delete cache[companyName];
+      setEnrichmentCache(cache);
+    }
+  }
+  
+  return null;
+};
+
+const setCachedEnrichment = (companyName: string, data: ProntoEnrichmentResponse): void => {
+  const cache = getEnrichmentCache();
+  cache[companyName] = {
+    data,
+    timestamp: Date.now()
+  };
+  setEnrichmentCache(cache);
+  console.log(`💾 Données Pronto mises en cache pour: ${companyName}`);
+};
+
+// Fonction pour construire l'URL du logo Pronto
+const buildProntoLogoUrl = (companyPictureDisplayImage: any): string | null => {
+  if (!companyPictureDisplayImage || !companyPictureDisplayImage.artifacts || !companyPictureDisplayImage.rootUrl) {
+    return null;
+  }
+
+  try {
+    // Prendre l'artifact de 200x200 (taille optimale pour l'affichage)
+    const artifact = companyPictureDisplayImage.artifacts.find(a => a.width === 200) || 
+                    companyPictureDisplayImage.artifacts[0]; // Fallback sur le premier
+
+    if (!artifact) {
+      return null;
+    }
+
+    // Construire l'URL complète
+    const logoUrl = `${companyPictureDisplayImage.rootUrl}${artifact.fileIdentifyingUrlPathSegment}`;
+    return logoUrl;
+  } catch (error) {
+    console.error('❌ Erreur lors de la construction de l\'URL du logo:', error);
+    return null;
+  }
+};
 
 // Nouvelle version pour EntrepriseApiResult (API recherche-entreprises)
 function mapEntrepriseApiResultToCardData(company: any): any {
@@ -57,17 +169,79 @@ export const BusinessCard: React.FC<BusinessCardProps> = ({
 }) => {
   const navigate = useNavigate();
   const currentYear = new Date().getFullYear();
+  
+  // États pour l'enrichissement Pronto
+  const [prontoEnrichment, setProntoEnrichment] = useState<ProntoEnrichmentResponse | null>(null);
+  const [enrichmentLoading, setEnrichmentLoading] = useState(false);
+
+  // Fonction pour enrichir l'entreprise avec Pronto
+  const enrichWithPronto = async (companyName: string) => {
+    if (!companyName || isProntoData) return; // Pas d'enrichissement pour les données Pronto déjà enrichies
+    
+    // Vérifier d'abord le cache localStorage
+    const cachedData = getCachedEnrichment(companyName);
+    if (cachedData) {
+      setProntoEnrichment(cachedData);
+      return;
+    }
+    
+    setEnrichmentLoading(true);
+    try {
+      const response = await fetch(`/api/pronto/companies/enrich?name=${encodeURIComponent(companyName)}`, {
+        method: 'GET',
+        headers: {
+          'accept': 'application/json'
+        }
+      });
+      
+      if (response.ok) {
+        const data: ProntoEnrichmentResponse = await response.json();
+        
+        // Mettre en cache même si found: false (pour éviter de refaire l'appel)
+        setCachedEnrichment(companyName, data);
+        
+        if (data.found) {
+          setProntoEnrichment(data);
+          console.log(`✅ Enrichissement Pronto réussi pour: ${companyName}`);
+        } else {
+          console.log(`⚠️ Aucune donnée Pronto trouvée pour: ${companyName}`);
+        }
+      } else {
+        console.error(`❌ Erreur lors de l'enrichissement Pronto pour: ${companyName}`);
+      }
+    } catch (error) {
+      console.error(`❌ Erreur réseau lors de l'enrichissement Pronto:`, error);
+    } finally {
+      setEnrichmentLoading(false);
+    }
+  };
 
   // Fonction pour extraire les données selon le type
   const getCompanyData = () => {
     if (!isProntoData && company && 'nom_complet' in company) {
       // Mapping pour EntrepriseApiResult enrichi
       const mapped = mapEntrepriseApiResultToCardData(company);
-      // Prendre le logo/description Pronto si présents
+      
+      // Enrichir avec les données Pronto si disponibles
+      const enrichedDescription = prontoEnrichment?.description || mapped.description;
+      const enrichedIndustry = prontoEnrichment?.industry || mapped.activity;
+      const enrichedWebsite = prontoEnrichment?.website || mapped.website;
+      const enrichedEmployeeCount = prontoEnrichment?.employeeCount || mapped.employeeCount;
+      
+      // Construire l'URL du logo Pronto
+      const prontoLogoUrl = prontoEnrichment?.companyPictureDisplayImage ? 
+        buildProntoLogoUrl(prontoEnrichment.companyPictureDisplayImage) : null;
+      
       return {
         ...mapped,
-        logo: (company as any).prontoLogo || mapped.logo,
-        description: (company as any).prontoDescription || mapped.description,
+        description: enrichedDescription,
+        activity: enrichedIndustry,
+        website: enrichedWebsite,
+        employeeCount: enrichedEmployeeCount,
+        // Utiliser le logo Pronto s'il est disponible, sinon le logo existant
+        logo: prontoLogoUrl || mapped.logo,
+        // Indicateur que l'entreprise a été enrichie
+        isEnriched: prontoEnrichment?.found || false
       };
     }
     if (isProntoData && 'company' in company) {
@@ -125,6 +299,10 @@ export const BusinessCard: React.FC<BusinessCardProps> = ({
         return '';
       };
       
+      // Construire l'URL du logo pour les données Pronto directes
+      const prontoLogoUrl = prontoCompany.companyPictureDisplayImage ? 
+        buildProntoLogoUrl(prontoCompany.companyPictureDisplayImage) : null;
+      
               return {
           id: prontoCompany.name, // Utiliser le nom comme ID temporaire
           name: prontoCompany.name,
@@ -136,7 +314,7 @@ export const BusinessCard: React.FC<BusinessCardProps> = ({
           activity: prontoCompany.industry || '',
           description: prontoCompany.description || '',
           website: prontoCompany.website || '',
-          logo: prontoCompany.company_profile_picture || '',
+          logo: prontoLogoUrl || prontoCompany.company_profile_picture || '',
           employeeCount: parseInt(prontoCompany.employee_range?.split('-')[1] || '0'),
           revenue: undefined,
           legalForm: undefined,
@@ -150,6 +328,16 @@ export const BusinessCard: React.FC<BusinessCardProps> = ({
       return company as BusinessWithProntoData;
     }
   };
+
+  // Effectuer l'enrichissement quand le composant se monte
+  useEffect(() => {
+    if (!isProntoData && company && 'nom_complet' in company) {
+      const companyName = company.nom_complet;
+      if (companyName) {
+        enrichWithPronto(companyName);
+      }
+    }
+  }, [company, isProntoData]);
 
   const companyData = getCompanyData();
   const companyAge = companyData.foundedYear ? currentYear - companyData.foundedYear : null;
@@ -274,6 +462,13 @@ export const BusinessCard: React.FC<BusinessCardProps> = ({
             {companyAge && (
               <p className="text-xs text-gray-500 mt-1">Fondée en {companyData.foundedYear} • {companyAge} ans</p>
             )}
+            {/* Indicateur d'enrichissement Pronto */}
+            {(companyData as any).isEnriched && (
+              <div className="flex items-center gap-1 mt-1">
+                <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                <span className="text-xs text-green-600 font-medium">Enrichi Pronto</span>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -332,10 +527,21 @@ export const BusinessCard: React.FC<BusinessCardProps> = ({
             </div>
           )}
 
-          {/* Description */}
-          <p className="text-sm text-gray-600 leading-relaxed line-clamp-3">
-            {companyData.description}
-          </p>
+          {/* Description enrichie Pronto */}
+          {companyData.description && (
+            <div className="space-y-2">
+              <p className="text-sm text-gray-600 leading-relaxed line-clamp-3">
+                {companyData.description}
+              </p>
+              {/* Indicateur de chargement de l'enrichissement */}
+              {enrichmentLoading && (
+                <div className="flex items-center gap-2 text-xs text-gray-500">
+                  <div className="w-3 h-3 border border-gray-300 border-t-blue-500 rounded-full animate-spin"></div>
+                  <span>Enrichissement en cours...</span>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Actions */}

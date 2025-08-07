@@ -108,7 +108,7 @@ const ContactOptions: React.FC<ContactOptionsProps> = ({
 
   return (
     <div className="mb-6 bg-white rounded-lg shadow-sm border border-gray-200 p-3">
-      <div className="flex flex-col spec-xs:flex-row justify-between items-center w-full space-y-3 spec-xs:space-y-0">
+        <div className="flex flex-col spec-xs:flex-row justify-between items-center w-full space-y-3 spec-xs:space-y-0">
         {/* 1st group */}
         <div className="flex spec-xs:self-start justify-evenly spec-xs:justify-between items-center space-x-2 w-auto">
           {/* Limit dropdown */}

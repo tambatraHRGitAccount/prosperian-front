@@ -28,6 +28,7 @@ interface FilterContextType {
   postes: typeof mockContacts.postes;
   niveaux: typeof mockContacts.niveaux;
   setFilters: (f: FilterState) => void;
+  updateFilters: (f: FilterState) => void;
   handleSearchChange: (term: string) => void;
   setSort: (sortBy: string) => void;
   setFilteredContacts: (contacts: any[]) => void; // New function to update filteredContacts
@@ -47,6 +48,10 @@ const defaultFilters: FilterState = {
   googleActivities: [],
   semanticTerms: [],
   enseignes: [],
+  sectors: [],
+  sectorNafCodes: [],
+  departments: [],
+  departmentCodes: [],
   activitySearchType: 'naf'
 };
 
@@ -106,7 +111,16 @@ export const FilterProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const handleSearchChange = (searchTerm: string) => {
+    console.log('🔍 [CONTEXTE] handleSearchChange appelé avec:', searchTerm);
     setFilters(prev => ({ ...prev, searchTerm }));
+  };
+
+  const updateFilters = (f: FilterState) => {
+    console.log('🔍 [CONTEXTE] updateFilters appelé avec:', f);
+    console.log('🔍 [CONTEXTE] Anciens filtres:', filters);
+    console.log('🔍 [CONTEXTE] Nouveaux filtres:', f);
+    setFilters(f);
+    console.log('🔍 [CONTEXTE] updateFilters terminé');
   };
 
   return (
@@ -125,6 +139,7 @@ export const FilterProvider = ({ children }: { children: ReactNode }) => {
         postes: mockContacts.postes,
         niveaux: mockContacts.niveaux,
         setFilters,
+        updateFilters,
         handleSearchChange,
         setSort,
         setFilteredContacts, // Expose the new setter

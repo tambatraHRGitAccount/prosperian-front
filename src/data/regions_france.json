@@ -1,0 +1,20 @@
+[
+  {"code": "11", "region": "Île-de-France"},
+  {"code": "24", "region": "Centre-Val de Loire"},
+  {"code": "27", "region": "Bourgogne-Franche-Comté"},
+  {"code": "28", "region": "Normandie"},
+  {"code": "32", "region": "Hauts-de-France"},
+  {"code": "44", "region": "Grand Est"},
+  {"code": "52", "region": "Pays de la Loire"},
+  {"code": "53", "region": "Bretagne"},
+  {"code": "75", "region": "Nouvelle-Aquitaine"},
+  {"code": "76", "region": "Occitanie"},
+  {"code": "84", "region": "Auvergne-Rhône-Alpes"},
+  {"code": "93", "region": "Provence-Alpes-Côte d'Azur"},
+  {"code": "94", "region": "Corse"},
+  {"code": "01", "region": "Guadeloupe"},
+  {"code": "02", "region": "Martinique"},
+  {"code": "03", "region": "Guyane"},
+  {"code": "04", "region": "La Réunion"},
+  {"code": "06", "region": "Mayotte"}
+]

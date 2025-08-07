@@ -3,39 +3,178 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { Download, ArrowLeft, FileText } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
-const API_URL = 'https://prosperiantest1.onrender.com/api/search';
+const API_URL = 'https://prosperian.onrender.com/api/search';
+
+// Interface pour la réponse de l'endpoint d'enrichissement Pronto
+interface ProntoEnrichmentResponse {
+  found: boolean;
+  name?: string;
+  description?: string;
+  industry?: string;
+  website?: string;
+  employeeCount?: number;
+  linkedin?: string;
+  headquarters?: {
+    city?: string;
+    country?: string;
+    line1?: string;
+    postalCode?: string;
+  };
+  companyPictureDisplayImage?: {
+    artifacts: Array<{
+      width: number;
+      height: number;
+      fileIdentifyingUrlPathSegment: string;
+    }>;
+    rootUrl: string;
+  };
+  // Autres champs possibles...
+}
+
+// Interface pour le stockage localStorage
+interface ProntoEnrichmentCache {
+  [companyName: string]: {
+    data: ProntoEnrichmentResponse;
+    timestamp: number;
+  };
+}
+
+// Clé pour le localStorage
+const PRONTO_ENRICHMENT_CACHE_KEY = 'pronto_enrichment_cache';
+const CACHE_DURATION = 24 * 60 * 60 * 1000; // 24 heures en millisecondes
+
+// Fonctions utilitaires pour le cache localStorage
+const getEnrichmentCache = (): ProntoEnrichmentCache => {
+  try {
+    const cached = localStorage.getItem(PRONTO_ENRICHMENT_CACHE_KEY);
+    return cached ? JSON.parse(cached) : {};
+  } catch (error) {
+    console.error('❌ Erreur lors de la lecture du cache localStorage:', error);
+    return {};
+  }
+};
+
+const setEnrichmentCache = (cache: ProntoEnrichmentCache): void => {
+  try {
+    localStorage.setItem(PRONTO_ENRICHMENT_CACHE_KEY, JSON.stringify(cache));
+  } catch (error) {
+    console.error('❌ Erreur lors de l\'écriture du cache localStorage:', error);
+  }
+};
+
+const getCachedEnrichment = (companyName: string): ProntoEnrichmentResponse | null => {
+  const cache = getEnrichmentCache();
+  const cached = cache[companyName];
+  
+  if (cached) {
+    const now = Date.now();
+    const isExpired = (now - cached.timestamp) > CACHE_DURATION;
+    
+    if (!isExpired) {
+      console.log(`📦 Données Pronto récupérées du cache pour: ${companyName}`);
+      return cached.data;
+    } else {
+      console.log(`⏰ Cache expiré pour: ${companyName}`);
+      // Supprimer l'entrée expirée
+      delete cache[companyName];
+      setEnrichmentCache(cache);
+    }
+  }
+  
+  return null;
+};
+
+const setCachedEnrichment = (companyName: string, data: ProntoEnrichmentResponse): void => {
+  const cache = getEnrichmentCache();
+  cache[companyName] = {
+    data,
+    timestamp: Date.now()
+  };
+  setEnrichmentCache(cache);
+  console.log(`💾 Données Pronto mises en cache pour: ${companyName}`);
+};
+
+// Fonction pour enrichir l'entreprise avec Pronto
+const enrichWithPronto = async (companyName: string): Promise<ProntoEnrichmentResponse | null> => {
+  if (!companyName) return null;
+  
+  // Vérifier d'abord le cache localStorage
+  const cachedData = getCachedEnrichment(companyName);
+  if (cachedData) {
+    return cachedData;
+  }
+  
+  try {
+    const response = await fetch(`/api/pronto/companies/enrich?name=${encodeURIComponent(companyName)}`, {
+      method: 'GET',
+      headers: {
+        'accept': 'application/json'
+      }
+    });
+    
+    if (response.ok) {
+      const data: ProntoEnrichmentResponse = await response.json();
+      
+      // Mettre en cache même si found: false (pour éviter de refaire l'appel)
+      setCachedEnrichment(companyName, data);
+      
+      if (data.found) {
+        console.log(`✅ Enrichissement Pronto réussi pour: ${companyName}`);
+      } else {
+        console.log(`⚠️ Aucune donnée Pronto trouvée pour: ${companyName}`);
+      }
+      
+      return data;
+    } else {
+      console.error(`❌ Erreur lors de l'enrichissement Pronto pour: ${companyName}`);
+      return null;
+    }
+  } catch (error) {
+    console.error(`❌ Erreur réseau lors de l'enrichissement Pronto:`, error);
+    return null;
+  }
+};
 
 const SocieteDetails: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('legal');
   const [societeData, setSocieteData] = useState<any>(null);
+  const [prontoEnrichment, setProntoEnrichment] = useState<ProntoEnrichmentResponse | null>(null);
+  const [enrichmentLoading, setEnrichmentLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Static data with dynamic company name
-  const staticData = {
-    siteWeb: 'Trouvez rapidement un Emploi avec Hellowork, Premier site Emploi en France : 933 063 Offres d’Emploi, 12 402 Entreprises qui recrutent, CV, alerte mail, actualités.',
-    linkedin: 'https://www.linkedin.com/company/hellowork-fr/',
-    social: 'annonces d’emploi sur internet. Activités de formation. Prestations de services aux entreprises... Domaine informatique télécommunications internet et systèmes d’information en général et des ressources humaines (début : 20.08.2002).',
-    revenueData: [
-      { year: 2014, revenue: 23.3 },
-      { year: 2015, revenue: 28.5 },
-      { year: 2016, revenue: 35 },
-      { year: 2017, revenue: 43.6 },
-      { year: 2018, revenue: 57.4 },
-      { year: 2019, revenue: 77.8 },
-      { year: 2020, revenue: 96.2 },
-      { year: 2021, revenue: 100 },
-      { year: 2022, revenue: 125 },
-      { year: 2023, revenue: 125 },
-    ],
+  // Données de revenus dynamiques basées sur les finances de l'entreprise
+  const getRevenueData = (finances: any) => {
+    if (!finances || typeof finances !== 'object') {
+      return [];
+    }
+
+    const revenueData = [];
+    const years = Object.keys(finances).filter(year => 
+      finances[year] && finances[year].ca != null
+    ).sort((a, b) => Number(a) - Number(b));
+
+    for (const year of years) {
+      const ca = finances[year].ca;
+      if (ca != null) {
+        revenueData.push({
+          year: parseInt(year),
+          revenue: Math.round(ca / 1_000_000) // Convertir en millions d'euros
+        });
+      }
+    }
+
+    return revenueData;
   };
 
   useEffect(() => {
     if (!id) return;
     setLoading(true);
     setError(null);
+    
+    // Récupérer les données de l'entreprise
     fetch(`${API_URL}?q=${id}&limite_matching_etablissements=10&page=1&per_page=10`, {
       headers: { accept: 'application/json' }
     })
@@ -43,7 +182,16 @@ const SocieteDetails: React.FC = () => {
         if (!res.ok) throw new Error('Erreur lors de la récupération des données société');
         const data = await res.json();
         if (data.results && data.results.length > 0) {
-          setSocieteData(data.results[0]);
+          const companyData = data.results[0];
+          setSocieteData(companyData);
+          
+          // Enrichir avec Pronto si on a le nom de l'entreprise
+          if (companyData.nom_complet) {
+            setEnrichmentLoading(true);
+            const enrichment = await enrichWithPronto(companyData.nom_complet);
+            setProntoEnrichment(enrichment);
+            setEnrichmentLoading(false);
+          }
         } else {
           setError('Aucune société trouvée pour ce SIREN');
         }
@@ -71,6 +219,14 @@ const SocieteDetails: React.FC = () => {
     return <div className="flex items-center justify-center min-h-screen text-lg text-red-600">{error || 'Erreur inconnue'}</div>;
   }
 
+  // Données dynamiques basées sur l'enrichissement Pronto
+  const dynamicData = {
+    siteWeb: prontoEnrichment?.website || 'Site web non disponible',
+    linkedin: prontoEnrichment?.linkedin || 'https://www.linkedin.com/',
+    social: prontoEnrichment?.description || societeData.activite_principale || 'Description non disponible',
+    revenueData: getRevenueData(societeData.finances)
+  };
+
   return (
     <div className="bg-gray-50 min-h-screen font-sans p-6">
       {/* Company Overview Card */}
@@ -89,7 +245,15 @@ const SocieteDetails: React.FC = () => {
                 >
                   <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z" stroke="#E95C41" strokeWidth="0.5" />
                 </svg>
-                <p className="text-base text-gray-700">Site Web: {staticData.siteWeb}</p>
+                <p className="text-base text-gray-700">
+                  Site Web: {dynamicData.siteWeb !== 'Site web non disponible' ? (
+                    <a href={dynamicData.siteWeb} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
+                      {dynamicData.siteWeb}
+                    </a>
+                  ) : (
+                    dynamicData.siteWeb
+                  )}
+                </p>
               </div>
               <div className="flex items-start">
                 <svg
@@ -100,7 +264,9 @@ const SocieteDetails: React.FC = () => {
                 >
                   <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z" stroke="#E95C41" strokeWidth="0.5" />
                 </svg>
-                <p className="text-base text-gray-700">LinkedIn: <a href={staticData.linkedin} className="text-blue-600 hover:underline">{staticData.linkedin}</a></p>
+                <p className="text-base text-gray-700">
+                  LinkedIn: <a href={dynamicData.linkedin} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">{dynamicData.linkedin}</a>
+                </p>
               </div>
               <div className="flex items-start">
                 <svg
@@ -111,7 +277,22 @@ const SocieteDetails: React.FC = () => {
                 >
                   <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z" stroke="#E95C41" strokeWidth="0.5" />
                 </svg>
-                <p className="text-base text-gray-700">Réseau Social: {staticData.social}</p>
+                <p className="text-base text-gray-700">
+                  Description: {dynamicData.social}
+                  {enrichmentLoading && (
+                    <span className="ml-2 text-xs text-gray-500">
+                      <div className="inline-flex items-center gap-1">
+                        <div className="w-3 h-3 border border-gray-300 border-t-blue-500 rounded-full animate-spin"></div>
+                        Enrichissement en cours...
+                      </div>
+                    </span>
+                  )}
+                  {prontoEnrichment?.found && (
+                    <span className="ml-2 text-xs text-green-600 font-medium">
+                      ✓ Enrichi Pronto
+                    </span>
+                  )}
+                </p>
               </div>
             </div>
           </div>
@@ -120,16 +301,22 @@ const SocieteDetails: React.FC = () => {
           <div className="flex flex-col items-center justify-center w-full md:w-1/2">
             <div className="w-full p-6 border-2 border-dashed border-gray-300 rounded-lg bg-gray-50">
               <h2 className="text-lg font-medium text-gray-700 mb-2 text-center">Chiffre d'affaires</h2>
-              <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={staticData.revenueData}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="year" />
-                  <YAxis />
-                  <Tooltip />
-                  <Legend />
-                  <Bar dataKey="revenue" fill="#1E3A8A" name="Revenue (M€)" /> {/* Changed to dark blue */}
-                </BarChart>
-              </ResponsiveContainer>
+              {dynamicData.revenueData.length > 0 ? (
+                <ResponsiveContainer width="100%" height={300}>
+                  <BarChart data={dynamicData.revenueData}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="year" />
+                    <YAxis />
+                    <Tooltip />
+                    <Legend />
+                    <Bar dataKey="revenue" fill="#1E3A8A" name="Revenue (M€)" />
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="flex items-center justify-center h-[300px] text-gray-500">
+                  <p>Aucune donnée financière disponible</p>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -157,29 +344,13 @@ const SocieteDetails: React.FC = () => {
             </span>
             Retour
           </button>
-          {/* <button
-            onClick={() => {}}
-            className="text-[#E95C41] font-medium py-3 px-6 rounded-full hover:bg-gray-100"
-          >
-            Télécharger les statuts
-          </button> */}
         </div>
       </div>
 
       {/* Onglets principaux */}
       <div className="max-w-5xl mx-auto">
         <div className="">
-          {/* <button
-            className={`flex items-center gap-2 px-6 py-3 text-sm font-semibold rounded-t-lg transition-colors ${
-              activeTab === 'legal'
-                ? 'text-red-600 border-b-2 border-red-600 bg-red-50'
-                : 'text-gray-600 hover:bg-gray-100'
-            }`}
-            onClick={() => setActiveTab('legal')}
-            aria-current={activeTab === 'legal' ? 'page' : undefined}
-          >
-            <FileText className="w-4 h-4" />
-          </button> */}
+          {/* Onglets désactivés pour l'instant */}
         </div>
 
         {/* Contenu des informations générales */}
@@ -215,7 +386,7 @@ const SocieteDetails: React.FC = () => {
                 </div>
                 <div>
                   <div className="text-gray-500 text-xs uppercase font-medium mb-1">Activité principale</div>
-                  <div className="text-gray-800">{societeData.activite_principale} (Activités de poste dans le cadre du service universel)</div>
+                  <div className="text-gray-800">{societeData.activite_principale}</div>
                 </div>
                 <div>
                   <div className="text-gray-500 text-xs uppercase font-medium mb-1">Catégorie entreprise</div>
@@ -235,7 +406,7 @@ const SocieteDetails: React.FC = () => {
                 </div>
                 <div>
                   <div className="text-gray-500 text-xs uppercase font-medium mb-1">Nature juridique</div>
-                  <div className="text-gray-800">{societeData.nature_juridique} (Établissement public à caractère industriel et commercial)</div>
+                  <div className="text-gray-800">{societeData.nature_juridique}</div>
                 </div>
                 <div>
                   <div className="text-gray-500 text-xs uppercase font-medium mb-1">Section activité principale</div>

@@ -1,32 +1,33 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 import { Outlet, useLocation } from "react-router-dom";
-import { useFilterContext } from "@contexts/FilterContext";
-import { SecondaryNav } from "@shared/components/Header/SecondaryNav";
 import { ResponsiveSidebar } from "@shared/components/Sidebar/ResponsiveSidebar";
-import { FilterState } from "@entities/Business";
-import { useSearchLayoutContext } from "@contexts/SearchLayoutContext";
+import { SecondaryNav } from "@shared/components/Header/SecondaryNav";
+import { useFilterContext } from "@contexts/FilterContext";
 
 export const SearchLayout: React.FC = () => {
   const location = useLocation();
-  const isExportPage = location.pathname.includes("/recherche/export");
-  const {
-    filters,
-    setFilters,
-    availableActivities,
-    availableCities,
-    availableLegalForms,
-    availableRoles,
-    employeeRange,
-    revenueRange,
-    ageRange,
-    handleSearchChange,
-  } = useFilterContext();
+  const { filters } = useFilterContext();
+  
+  // État pour contrôler la visibilité de la sidebar
+  const [showSidebar, setShowSidebar] = useState(true);
+  
+  // Détecter si on est sur la page export
+  const isExportPage = location.pathname.includes('/recherche/export');
 
-  const { showSidebar } = useSearchLayoutContext();
+  // Masquer la sidebar sur mobile
+  useEffect(() => {
+    const handleResize = () => {
+      if (window.innerWidth < 768) {
+        setShowSidebar(false);
+      } else {
+        setShowSidebar(true);
+      }
+    };
 
-  const handleFiltersChange = (newFilters: FilterState) => {
-    setFilters(newFilters);
-  };
+    handleResize();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   return (
     <>
@@ -38,19 +39,24 @@ export const SearchLayout: React.FC = () => {
         {showSidebar && !isExportPage && (
           <ResponsiveSidebar
             filters={filters}
-            onFiltersChange={handleFiltersChange}
-            availableCities={availableCities}
-            availableLegalForms={availableLegalForms}
-            availableRoles={availableRoles}
-            employeeRange={employeeRange}
-            revenueRange={revenueRange}
-            ageRange={ageRange}
+            onFiltersChange={() => {}}
+            availableCities={[]}
+            availableLegalForms={[]}
+            availableRoles={[]}
+            employeeRange={[0, 5000]}
+            revenueRange={[0, 1000000]}
+            ageRange={[0, 50]}
             searchTerm={filters.searchTerm}
             activities={filters.activities}
             cities={filters.cities}
             legalForms={filters.legalForms}
             ratingRange={filters.ratingRange}
             roles={filters.roles}
+            selectedList={filters.selectedList}
+            onRemoveListFilter={() => {
+              // Cette fonction sera gérée par la page Contact
+              console.log('Retrait du filtre de liste demandé');
+            }}
           />
         )}
         {/* Main Content */}

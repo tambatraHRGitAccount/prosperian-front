@@ -30,7 +30,7 @@ import AdminEnrichments from "@pages/Admin/Enrichments";
 import AdminUsers from "@pages/Admin/Users";
 import AdminSubscriptions from "@pages/Admin/Subscriptions";
 import AdminRoute from "@components/AdminRoute";
-import NotFound from "@components/NotFound";
+
 /* import Surveillance   from "@pages/Surveillance";
 import Veille         from "@pages/Veille"; */
 
@@ -75,13 +75,7 @@ export const App = () => {
           <Route path="users" element={<AdminUsers />} />
           <Route path="subscriptions" element={<AdminSubscriptions />} />
         </Route>
-        
-        {/* <Route path="surveillance"   element={<Surveillance />} />
-        <Route path="veille"         element={<Veille />} /> */}
       </Route>
-
-      {/* Route 404 - doit être la dernière route */}
-      <Route path="*" element={<NotFound />} />
     </Routes>
   );
 };

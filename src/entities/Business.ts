@@ -35,7 +35,26 @@ export interface Business {
     semanticTerms?: string[];
     // Filtres enseignes/franchises
     enseignes?: string[];
-    activitySearchType?: 'naf' | 'google' | 'semantic' | 'enseigne';
+    // Filtres secteurs (remplace enseignes)
+    sectors?: string[];
+    sectorNafCodes?: string[];
+    // Filtres localisation
+    departments?: string[];
+    departmentCodes?: string[];
+    regions?: string[];
+    regionCodes?: string[];
+    activitySearchType?: 'naf' | 'google' | 'semantic' | 'enseigne' | 'secteur';
+    // Filtre de recherche d'entreprise pour la page contact
+    selectedCompany?: string;
+    // Filtre de recherche de contact pour la page entreprises
+    selectedContact?: string;
+    // Filtre de liste d'entreprises sélectionnée
+    selectedList?: {
+      listId: string;
+      listName: string;
+      companyCount: number;
+    } | null;
+    onRemoveListFilter?: () => void;
   }
 
   export interface FiltersPanelProps extends FilterState {

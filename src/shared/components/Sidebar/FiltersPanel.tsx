@@ -9,10 +9,16 @@ import axios from 'axios';
 import nafCodes from '@data/naf_codes.json';
 import naturesJuridiques from '@data/natures_juridiques.json';
 import conventionsCollectives from '@data/conventions_collectives.json';
+import linkedinSectors from '@data/linkedin_sectors_with_naf.json';
+import departementsFrance from '@data/departements_france.json';
+import regionsFrance from '@data/regions_france.json';
 import ReactDOM from 'react-dom';
 import { googlePlacesService, GooglePlacesCategory } from '../../../services/googlePlacesService';
 import { semanticService, PopularConcept, SemanticSuggestion } from '../../../services/semanticService';
 import { apifyService } from '../../../services/apifyService';
+import { companyListService, CompanyListItem } from '../../../services/companyListService';
+import { contactListService, ContactListItem } from '../../../services/contactListService';
+import { ProntoSearchForm } from '../../../pages/Recherche/Contact/_components/ProntoSearchForm';
 
 interface RangeSliderProps {
   min: number;
@@ -126,6 +132,12 @@ export interface FiltersPanelProps extends FilterState {
   revenueRange: [number, number];
   ageRange: [number, number];
   // onNafCodesChange?: (codes: string[]) => void; // SUPPRIMÉ
+  selectedList?: {
+    listId: string;
+    listName: string;
+    companyCount: number;
+  } | null;
+  onRemoveListFilter?: () => void;
 }
 
 export const FiltersPanel: React.FC<FiltersPanelProps> = ({
@@ -138,6 +150,8 @@ export const FiltersPanel: React.FC<FiltersPanelProps> = ({
   revenueRange,
   ageRange,
   // onNafCodesChange, // SUPPRIMÉ
+  selectedList,
+  onRemoveListFilter,
 }) => {
   console.log('FiltersPanel mounted');
   const { setFilters } = useFilterContext();
@@ -169,7 +183,7 @@ export const FiltersPanel: React.FC<FiltersPanelProps> = ({
   const [openConventionSections, setOpenConventionSections] = useState<{ [prefix: string]: boolean }>({ '0': true });
 
   // Ajouter de nouveaux states pour Google GMB
-  const [activitySearchType, setActivitySearchType] = useState<'naf' | 'google' | 'semantic' | 'enseigne'>('naf');
+  const [activitySearchType, setActivitySearchType] = useState<'naf' | 'google' | 'semantic' | 'secteur'>('naf');
   const [googleCategories, setGoogleCategories] = useState<GooglePlacesCategory[]>([]);
   const [loadingGoogleCategories, setLoadingGoogleCategories] = useState(false);
   const [selectedGoogleActivities, setSelectedGoogleActivities] = useState<string[]>([]);
@@ -181,9 +195,34 @@ export const FiltersPanel: React.FC<FiltersPanelProps> = ({
   const [selectedSemanticTerms, setSelectedSemanticTerms] = useState<string[]>([]);
   const [semanticSearchTerm, setSemanticSearchTerm] = useState('');
 
-  // States pour la recherche par enseigne/franchise
-  const [selectedEnseignes, setSelectedEnseignes] = useState<string[]>([]);
-  const [popularFranchises, setPopularFranchises] = useState<string[]>([]);
+  // States pour les secteurs (remplace enseigne/franchise)
+  const [selectedSectors, setSelectedSectors] = useState<string[]>([]);
+  const [sectorSearchTerm, setSectorSearchTerm] = useState('');
+
+  // States pour les départements
+  const [selectedDepartments, setSelectedDepartments] = useState<string[]>([]);
+  const [departmentSearchTerm, setDepartmentSearchTerm] = useState('');
+  const [citySearchTerm, setCitySearchTerm] = useState('');
+
+  // States pour les régions
+  const [selectedRegions, setSelectedRegions] = useState<string[]>([]);
+  const [regionSearchTerm, setRegionSearchTerm] = useState('');
+
+  // States pour la liste des entreprises (page contact)
+  const [companies, setCompanies] = useState<CompanyListItem[]>([]);
+  const [loadingCompanies, setLoadingCompanies] = useState(false);
+  const [companySearchTerm, setCompanySearchTerm] = useState('');
+  const [companyCurrentPage, setCompanyCurrentPage] = useState(1);
+  const [companyTotalPages, setCompanyTotalPages] = useState(1);
+  const [companyTotalResults, setCompanyTotalResults] = useState(0);
+
+  // States pour la liste des contacts (page entreprises)
+  const [contacts, setContacts] = useState<ContactListItem[]>([]);
+  const [loadingContacts, setLoadingContacts] = useState(false);
+  const [contactSearchTerm, setContactSearchTerm] = useState('');
+  const [contactCurrentPage, setContactCurrentPage] = useState(1);
+  const [contactTotalPages, setContactTotalPages] = useState(1);
+  const [contactTotalResults, setContactTotalResults] = useState(0);
 
   // Fonction utilitaire pour grouper par millier
   const conventionsGrouped = conventionsCollectives.reduce((acc: Record<string, typeof conventionsCollectives>, c) => {
@@ -200,10 +239,13 @@ export const FiltersPanel: React.FC<FiltersPanelProps> = ({
       activites: isEntreprisePage,
       chiffres: false,
       forme: false,
+      localisation: false,
+      contact: isEntreprisePage,
     };
   });
   const [openContactFilters, setOpenContactFilters] = useState<{ [key: string]: boolean }>(() => {
     return {
+      entreprise: isContactPage,
       roles: isContactPage,
       localisation: isContactPage,
     };
@@ -236,11 +278,21 @@ export const FiltersPanel: React.FC<FiltersPanelProps> = ({
   };
 
   const updateFilters = (updates: Partial<FilterState>) => {
-    onFiltersChange({ 
+    console.log('🔍 [FILTRES] updateFilters appelé avec:', updates);
+    console.log('🔍 [FILTRES] filters actuels:', filters);
+    
+    const newFilters = { 
       ...filters, 
       ...updates,
       sortBy: filters.sortBy || 'Pertinence' // Assurer que sortBy est toujours défini
-    });
+    };
+    
+    console.log('🔍 [FILTRES] Nouveaux filtres:', newFilters);
+    console.log('🔍 [FILTRES] Appel de onFiltersChange...');
+    
+    onFiltersChange(newFilters);
+    
+    console.log('🔍 [FILTRES] onFiltersChange appelé avec succès');
   };
 
   const safeFilters = {
@@ -389,41 +441,296 @@ export const FiltersPanel: React.FC<FiltersPanelProps> = ({
     } as any);
   };
 
-  // Gestion des enseignes/franchises
-  const handleEnseigneAdd = (enseigne: string) => {
-    if (!selectedEnseignes.includes(enseigne)) {
-      const newSelected = [...selectedEnseignes, enseigne];
-      setSelectedEnseignes(newSelected);
-      updateFilters({ 
-        enseignes: newSelected,
-        activitySearchType: 'enseigne'
-      } as any);
-    }
-    setActivitySearch(''); // Vider le champ de saisie
-  };
-
-  const handleEnseigneToggle = (enseigne: string) => {
-    const newSelected = selectedEnseignes.filter(e => e !== enseigne);
-    setSelectedEnseignes(newSelected);
-    updateFilters({ 
-      enseignes: newSelected,
-      activitySearchType: newSelected.length > 0 ? 'enseigne' : 'naf'
-    } as any);
-  };
-
-  // Charger les franchises populaires au démarrage
-  useEffect(() => {
-    const loadPopularFranchises = async () => {
-      try {
-        const franchises = await apifyService.getPopularFranchises();
-        setPopularFranchises(franchises);
-      } catch (error) {
-        console.error('Erreur lors du chargement des franchises populaires:', error);
-      }
-    };
+  // Gestion des secteurs (remplace enseigne/franchise)
+  const handleSectorAdd = (sector: string) => {
+    console.log('🔍 [SECTEUR] handleSectorAdd appelé avec:', sector);
+    console.log('🔍 [SECTEUR] selectedSectors actuels:', selectedSectors);
+    console.log('🔍 [SECTEUR] filters actuels:', filters);
     
-    loadPopularFranchises();
+    if (!selectedSectors.includes(sector)) {
+      const newSelected = [...selectedSectors, sector];
+      setSelectedSectors(newSelected);
+      console.log('🔍 [SECTEUR] Nouveaux secteurs sélectionnés:', newSelected);
+      
+      // Trouver le code NAF correspondant au secteur
+      const sectorData = linkedinSectors.find(s => s.secteur === sector);
+      console.log('🔍 [SECTEUR] Données du secteur trouvées:', sectorData);
+      
+      if (sectorData) {
+        const newNafCodes = [...(filters.sectorNafCodes || []), sectorData.code];
+        console.log('🔍 [SECTEUR] Nouveaux codes NAF:', newNafCodes);
+        
+        const updates = { 
+          sectors: newSelected,
+          sectorNafCodes: newNafCodes,
+          activitySearchType: 'secteur'
+        };
+        console.log('🔍 [SECTEUR] Mise à jour des filtres:', updates);
+        
+        updateFilters(updates as any);
+      } else {
+        console.error('❌ [SECTEUR] Secteur non trouvé dans linkedinSectors:', sector);
+        console.log('🔍 [SECTEUR] linkedinSectors disponibles:', linkedinSectors.slice(0, 5));
+      }
+    } else {
+      console.log('🔍 [SECTEUR] Secteur déjà sélectionné:', sector);
+    }
+    setSectorSearchTerm(''); // Vider le champ de saisie
+  };
+
+  const handleSectorToggle = (sector: string) => {
+    console.log('🔍 [SECTEUR] handleSectorToggle appelé avec:', sector);
+    console.log('🔍 [SECTEUR] selectedSectors actuels:', selectedSectors);
+    
+    const newSelected = selectedSectors.filter(s => s !== sector);
+    setSelectedSectors(newSelected);
+    console.log('🔍 [SECTEUR] Nouveaux secteurs après suppression:', newSelected);
+    
+    // Retirer le code NAF correspondant au secteur
+    const sectorData = linkedinSectors.find(s => s.secteur === sector);
+    console.log('🔍 [SECTEUR] Données du secteur à supprimer:', sectorData);
+    
+    if (sectorData) {
+      const newNafCodes = (filters.sectorNafCodes || []).filter(code => code !== sectorData.code);
+      console.log('🔍 [SECTEUR] Nouveaux codes NAF après suppression:', newNafCodes);
+      
+      const updates = { 
+        sectors: newSelected,
+        sectorNafCodes: newNafCodes,
+        activitySearchType: newSelected.length > 0 ? 'secteur' : 'naf'
+      };
+      console.log('🔍 [SECTEUR] Mise à jour des filtres après suppression:', updates);
+      
+      updateFilters(updates as any);
+    }
+  };
+
+  // Gestion des départements
+  const handleDepartmentAdd = (department: string) => {
+    console.log('🔍 [DEPARTEMENT] handleDepartmentAdd appelé avec:', department);
+    console.log('🔍 [DEPARTEMENT] selectedDepartments actuels:', selectedDepartments);
+    
+    if (!selectedDepartments.includes(department)) {
+      const newSelected = [...selectedDepartments, department];
+      setSelectedDepartments(newSelected);
+      console.log('🔍 [DEPARTEMENT] Nouveaux départements sélectionnés:', newSelected);
+      
+      // Trouver le code département correspondant
+      const departmentData = departementsFrance.find(d => d.departement === department);
+      console.log('🔍 [DEPARTEMENT] Données du département trouvées:', departmentData);
+      
+      if (departmentData) {
+        const newDepartmentCodes = [...(filters.departmentCodes || []), departmentData.code];
+        console.log('🔍 [DEPARTEMENT] Nouveaux codes département:', newDepartmentCodes);
+        
+        const updates = { 
+          departments: newSelected,
+          departmentCodes: newDepartmentCodes
+        };
+        console.log('🔍 [DEPARTEMENT] Mise à jour des filtres:', updates);
+        
+        updateFilters(updates as any);
+      } else {
+        console.error('❌ [DEPARTEMENT] Département non trouvé dans departementsFrance:', department);
+        console.log('🔍 [DEPARTEMENT] departementsFrance disponibles:', departementsFrance.slice(0, 5));
+      }
+    } else {
+      console.log('🔍 [DEPARTEMENT] Département déjà sélectionné:', department);
+    }
+    setDepartmentSearchTerm(''); // Vider le champ de saisie
+  };
+
+  const handleDepartmentToggle = (department: string) => {
+    console.log('🔍 [DEPARTEMENT] handleDepartmentToggle appelé avec:', department);
+    console.log('🔍 [DEPARTEMENT] selectedDepartments actuels:', selectedDepartments);
+    
+    const newSelected = selectedDepartments.filter(d => d !== department);
+    setSelectedDepartments(newSelected);
+    console.log('🔍 [DEPARTEMENT] Nouveaux départements après suppression:', newSelected);
+    
+    // Retirer le code département correspondant
+    const departmentData = departementsFrance.find(d => d.departement === department);
+    console.log('🔍 [DEPARTEMENT] Données du département à supprimer:', departmentData);
+    
+    if (departmentData) {
+      const newDepartmentCodes = (filters.departmentCodes || []).filter(code => code !== departmentData.code);
+      console.log('🔍 [DEPARTEMENT] Nouveaux codes département après suppression:', newDepartmentCodes);
+      
+      const updates = { 
+        departments: newSelected,
+        departmentCodes: newDepartmentCodes
+      };
+      console.log('🔍 [DEPARTEMENT] Mise à jour des filtres après suppression:', updates);
+      
+      updateFilters(updates as any);
+    }
+  };
+
+  // Fonctions pour la gestion des régions
+  const handleRegionAdd = (region: string) => {
+    console.log('🔍 [REGION] handleRegionAdd appelé avec:', region);
+    console.log('🔍 [REGION] selectedRegions actuels:', selectedRegions);
+    
+    if (selectedRegions.includes(region)) {
+      console.log('🔍 [REGION] Région déjà sélectionnée:', region);
+      return;
+    }
+    
+    const newSelected = [...selectedRegions, region];
+    setSelectedRegions(newSelected);
+    console.log('🔍 [REGION] Nouveaux régions sélectionnés:', newSelected);
+    
+    // Trouver le code région correspondant
+    const regionData = regionsFrance.find(r => r.region === region);
+    console.log('🔍 [REGION] Données de la région trouvées:', regionData);
+    
+    if (regionData) {
+      const newRegionCodes = [...(filters.regionCodes || []), regionData.code];
+      console.log('🔍 [REGION] Nouveaux codes région:', newRegionCodes);
+      
+      const updates = { 
+        regions: newSelected,
+        regionCodes: newRegionCodes
+      };
+      console.log('🔍 [REGION] Mise à jour des filtres:', updates);
+      
+      updateFilters(updates as any);
+    } else {
+      console.error('❌ [REGION] Région non trouvée dans regionsFrance:', region);
+    }
+    setRegionSearchTerm(''); // Vider le champ de saisie
+  };
+
+  const handleRegionToggle = (region: string) => {
+    console.log('🔍 [REGION] handleRegionToggle appelé avec:', region);
+    console.log('🔍 [REGION] selectedRegions actuels:', selectedRegions);
+    
+    const newSelected = selectedRegions.filter(r => r !== region);
+    setSelectedRegions(newSelected);
+    console.log('🔍 [REGION] Nouveaux régions après suppression:', newSelected);
+    
+    // Retirer le code région correspondant
+    const regionData = regionsFrance.find(r => r.region === region);
+    console.log('🔍 [REGION] Données de la région à supprimer:', regionData);
+    
+    if (regionData) {
+      const newRegionCodes = (filters.regionCodes || []).filter(code => code !== regionData.code);
+      console.log('🔍 [REGION] Nouveaux codes région après suppression:', newRegionCodes);
+      
+      const updates = { 
+        regions: newSelected,
+        regionCodes: newRegionCodes
+      };
+      console.log('🔍 [REGION] Mise à jour des filtres après suppression:', updates);
+      
+      updateFilters(updates as any);
+    }
+  };
+
+  // Charger les secteurs populaires au démarrage
+  useEffect(() => {
+    // Les secteurs populaires sont déjà dans le fichier JSON
+    // On peut les charger directement
   }, []);
+
+  // Synchroniser les départements sélectionnés avec les filtres
+  useEffect(() => {
+    if (filters.departments) {
+      setSelectedDepartments(filters.departments);
+    }
+  }, [filters.departments]);
+
+  // Synchroniser les régions sélectionnées avec les filtres
+  useEffect(() => {
+    if (filters.regions) {
+      setSelectedRegions(filters.regions);
+    }
+  }, [filters.regions]);
+
+  // Fonctions pour la gestion des entreprises (page contact)
+  const loadCompanies = async (page: number = 1, searchTerm: string = '') => {
+    if (isContactPage) {
+      setLoadingCompanies(true);
+      try {
+        const response = await companyListService.getCompanies(page, 10, searchTerm);
+        setCompanies(response.results);
+        setCompanyCurrentPage(response.page);
+        setCompanyTotalPages(response.total_pages);
+        setCompanyTotalResults(response.total_results);
+      } catch (error) {
+        console.error('Erreur lors du chargement des entreprises:', error);
+        setCompanies([]);
+      } finally {
+        setLoadingCompanies(false);
+      }
+    }
+  };
+
+  const handleCompanySearch = async (searchTerm: string) => {
+    setCompanySearchTerm(searchTerm);
+    setCompanyCurrentPage(1);
+    // Si le terme de recherche est vide, on charge toutes les entreprises (recherche globale)
+    await loadCompanies(1, searchTerm);
+  };
+
+  const handleCompanyPageChange = async (page: number) => {
+    setCompanyCurrentPage(page);
+    await loadCompanies(page, companySearchTerm);
+  };
+
+  const handleCompanySelect = (company: CompanyListItem) => {
+    const companyName = company.nom_raison_sociale || company.nom_complet;
+    updateFilters({ selectedCompany: companyName });
+  };
+
+  // Charger les entreprises au montage si on est sur la page contact
+  useEffect(() => {
+    if (isContactPage) {
+      loadCompanies(1, '');
+    }
+  }, [isContactPage]);
+
+  // Fonctions pour la gestion des contacts (page entreprises)
+  const loadContacts = async (page: number = 1, searchTerm: string = '') => {
+    if (isEntreprisePage) {
+      setLoadingContacts(true);
+      try {
+        const response = await contactListService.getContacts(page, 10, searchTerm);
+        setContacts(response.results);
+        setContactCurrentPage(response.page);
+        setContactTotalPages(response.total_pages);
+        setContactTotalResults(response.total_results);
+      } catch (error) {
+        console.error('Erreur lors du chargement des contacts:', error);
+        setContacts([]);
+      } finally {
+        setLoadingContacts(false);
+      }
+    }
+  };
+
+  const handleContactSearch = async (searchTerm: string) => {
+    setContactSearchTerm(searchTerm);
+    setContactCurrentPage(1);
+    await loadContacts(1, searchTerm);
+  };
+
+  const handleContactPageChange = async (page: number) => {
+    setContactCurrentPage(page);
+    await loadContacts(page, contactSearchTerm);
+  };
+
+  const handleContactSelect = (contact: ContactListItem) => {
+    const companyName = contact.entreprise;
+    updateFilters({ selectedContact: companyName });
+  };
+
+  // Charger les contacts au montage si on est sur la page entreprises
+  useEffect(() => {
+    if (isEntreprisePage) {
+      loadContacts(1, '');
+    }
+  }, [isEntreprisePage]);
 
   // Adapte MainSection pour accepter 'listes'
   const MainSection = ({
@@ -452,7 +759,7 @@ export const FiltersPanel: React.FC<FiltersPanelProps> = ({
   return (
     <>
       {/* Section Listes importées toujours ouverte, non réductible */}
-      <div className="border-b border-gray-200 p-4 bg-gray-50">
+      {/* <div className="border-b border-gray-200 p-4 bg-gray-50">
         <div className="font-medium text-gray-900 mb-2">Listes importées</div>
         {loadingLists ? (
           <div className="text-xs text-gray-500">Chargement...</div>
@@ -483,7 +790,7 @@ export const FiltersPanel: React.FC<FiltersPanelProps> = ({
             ))}
           </div>
         )}
-      </div>
+      </div> */}
       
       <div className="p-4 border-b border-gray-200">
         <div className="flex items-center space-x-2">
@@ -504,7 +811,9 @@ export const FiltersPanel: React.FC<FiltersPanelProps> = ({
                 sortBy: "Pertinence",
                 googleActivities: [],
                 semanticTerms: [],
-                activitySearchType: 'naf'
+                activitySearchType: 'naf',
+                selectedCompany: undefined,
+                selectedContact: undefined
               })
             }
             className="ml-auto text-xs text-orange-600 hover:text-orange-700 transition-colors"
@@ -539,7 +848,7 @@ export const FiltersPanel: React.FC<FiltersPanelProps> = ({
                 { key: 'naf', label: 'Code NAF' }, 
                 { key: 'google', label: 'Activité Google (GMB)' }, 
                 { key: 'semantic', label: 'Sémantique' }, 
-                { key: 'enseigne', label: 'Enseigne/Franchise' }
+                { key: 'secteur', label: 'Secteur' }
               ].map((tab) => (
                 <button
                   key={tab.key}
@@ -773,72 +1082,91 @@ export const FiltersPanel: React.FC<FiltersPanelProps> = ({
               </>
             )}
 
-            {activitySearchType === 'enseigne' && (
+            {activitySearchType === 'secteur' && (
               <>
                 <input
                   type="text"
-                  placeholder="Nom d'enseigne ou franchise (ex: McDonald's, Carrefour...)"
-                  value={activitySearch}
-                  onChange={(e) => setActivitySearch(e.target.value)}
+                  placeholder="Rechercher un secteur..."
+                  value={sectorSearchTerm}
+                  onChange={(e) => setSectorSearchTerm(e.target.value)}
                   className="w-full p-2 border border-gray-300 rounded text-sm"
                 />
                 
-                {/* Bouton pour ajouter l'enseigne à la recherche */}
-                {activitySearch.trim() && (
-                  <button
-                    type="button"
-                    onClick={() => handleEnseigneAdd(activitySearch.trim())}
-                    className="mt-2 w-full px-3 py-1 bg-orange-600 text-white text-sm rounded hover:bg-orange-700 transition-colors"
-                    disabled={!activitySearch.trim()}
-                  >
-                    ✓ Ajouter "{activitySearch.trim()}"
-                  </button>
-                )}
+                {/* Liste des secteurs filtrés */}
+                <div className="max-h-96 overflow-y-auto border border-gray-200 rounded p-2 bg-white">
+                  {linkedinSectors
+                    .filter(sector => 
+                      !sectorSearchTerm || 
+                      sector.secteur.toLowerCase().includes(sectorSearchTerm.toLowerCase())
+                    )
+                    .map(sector => (
+                      <label key={sector.secteur} className="flex items-center space-x-2 text-sm cursor-pointer hover:bg-gray-50 rounded p-1">
+                        <input
+                          type="checkbox"
+                          checked={selectedSectors.includes(sector.secteur)}
+                          onChange={() => {
+                            if (selectedSectors.includes(sector.secteur)) {
+                              handleSectorToggle(sector.secteur);
+                            } else {
+                              handleSectorAdd(sector.secteur);
+                            }
+                          }}
+                          className="w-4 h-4 text-orange-600 rounded"
+                        />
+                        <div className="flex-1">
+                          <span className="text-gray-700 font-medium">{sector.secteur}</span>
+                          {/* <div className="text-xs text-gray-500">
+                            Code NAF: {sector.code}
+                          </div> */}
+                        </div>
+                      </label>
+                    ))}
+                </div>
 
-                {/* Enseignes sélectionnées */}
-                {selectedEnseignes.length > 0 && (
-                  <div className="mt-2 space-y-1">
-                    <span className="text-xs font-medium text-gray-700">Enseignes sélectionnées:</span>
+                {/* Secteurs sélectionnés */}
+                {selectedSectors.length > 0 && (
+                  <div className="mt-3 space-y-1">
+                    <span className="text-xs font-medium text-gray-700">Secteurs sélectionnés:</span>
                     <div className="flex flex-wrap gap-1">
-                      {selectedEnseignes.map(enseigne => (
-                        <span 
-                          key={enseigne}
-                          className="inline-flex items-center px-2 py-1 rounded text-xs bg-orange-100 text-orange-800"
-                        >
-                          {enseigne}
-                          <button
-                            type="button"
-                            onClick={() => handleEnseigneToggle(enseigne)}
-                            className="ml-1 text-orange-600 hover:text-orange-800"
+                      {selectedSectors.map(sector => {
+                        const sectorData = linkedinSectors.find(s => s.secteur === sector);
+                        return (
+                          <span 
+                            key={sector}
+                            className="inline-flex items-center px-2 py-1 rounded text-xs bg-orange-100 text-orange-800"
+                            title={sectorData ? `Code NAF: ${sectorData.code}` : ''}
                           >
-                            ×
-                          </button>
-                        </span>
-                      ))}
+                            {sector}
+                            <button
+                              type="button"
+                              onClick={() => handleSectorToggle(sector)}
+                              className="ml-1 text-orange-600 hover:text-orange-800"
+                            >
+                              ×
+                            </button>
+                          </span>
+                        );
+                      })}
                     </div>
                   </div>
                 )}
 
-                {/* Suggestions d'enseignes populaires */}
-                <div className="mt-3">
-                  <span className="text-xs font-medium text-gray-700">Enseignes populaires:</span>
-                  <div className="mt-1 flex flex-wrap gap-1 max-h-32 overflow-y-auto">
-                    {popularFranchises.slice(0, 20).map(franchise => (
-                      <button
-                        key={franchise}
-                        type="button"
-                        onClick={() => handleEnseigneAdd(franchise)}
-                        className={`text-xs px-2 py-1 rounded border transition-colors ${
-                          selectedEnseignes.includes(franchise)
-                            ? 'bg-orange-100 border-orange-300 text-orange-800'
-                            : 'bg-gray-50 border-gray-200 text-gray-700 hover:bg-gray-100'
-                        }`}
-                      >
-                        {franchise}
-                      </button>
-                    ))}
+                {/* Informations sur les codes NAF */}
+                {selectedSectors.length > 0 && (
+                  <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded text-xs text-blue-800">
+                    <strong>Codes NAF sélectionnés:</strong>
+                    <div className="mt-1">
+                      {selectedSectors.map(sector => {
+                        const sectorData = linkedinSectors.find(s => s.secteur === sector);
+                        return sectorData ? (
+                          <div key={sector} className="text-blue-700">
+                            {sectorData.code} - {sectorData.secteur}
+                          </div>
+                        ) : null;
+                      })}
+                    </div>
                   </div>
-                </div>
+                )}
               </>
             )}
 
@@ -898,6 +1226,7 @@ export const FiltersPanel: React.FC<FiltersPanelProps> = ({
                   </div>
                 )}
               </div>
+
               {/* Juridique */}
               <div className={`mb-2 border-b border-gray-100 last:border-b-0 ${openEntrepriseFilters.forme ? 'border-2 border-orange-500 rounded p-3' : ''}` }>
                 <button
@@ -1003,110 +1332,226 @@ export const FiltersPanel: React.FC<FiltersPanelProps> = ({
                   </div>
                 )}
               </div>
-
-                            {/* Localisation */}
-              <div className={`mb-2 border-b border-gray-100 last:border-b-0 ${openContactFilters.localisation ? 'border-2 border-orange-500 rounded p-3' : ''}` }>
-                <button
-                  className="w-full flex items-center justify-between py-2 text-left"
-                  onClick={() => toggleContactFilter('localisation')}
-                >
-                  <span className="font-semibold">Localisation</span>
-                  <ChevronDown
-                    className={`w-5 h-5 text-gray-500 transition-transform ${openContactFilters.localisation ? 'rotate-180' : ''}`}
-                  />
-                </button>
-                {openContactFilters.localisation && (
-                  <div className="pt-2 pb-4 space-y-2 max-h-96 overflow-y-auto">
-                    {availableCities.map((city) => (
-                      <label key={city} className="flex items-center space-x-2 text-sm">
-                        <input
-                          type="checkbox"
-                          checked={safeFilters.cities.includes(city)}
-                          onChange={() => toggleCity(city)}
-                          className="w-4 h-4 text-orange-600 rounded"
-                        />
-                        <span className="text-gray-700 flex items-center gap-1">
-                          <MapPin className="w-3 h-3" />
-                          {city}
-                        </span>
-                      </label>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </MainSection>
-            <MainSection title="Contact" id="contact">
-              {/* Rôles */}
-              <div className={`mb-2 border-b border-gray-100 last:border-b-0 ${openContactFilters.roles ? 'border-2 border-orange-500 rounded p-3' : ''}` }>
-                <button
-                  className="w-full flex items-center justify-between py-2 text-left"
-                  onClick={() => toggleContactFilter('roles')}
-                >
-                  <span className="font-semibold">Rôles</span>
-                  <ChevronDown
-                    className={`w-5 h-5 text-gray-500 transition-transform ${openContactFilters.roles ? 'rotate-180' : ''}`}
-                  />
-                </button>
-                {openContactFilters.roles && (
-                  <div className="pt-2 pb-4 space-y-2 max-h-96 overflow-y-auto">
-                    <input
-                      type="text"
-                      placeholder="Rechercher un rôle..."
-                      value={roleSearch}
-                      onChange={(e) => setRoleSearch(e.target.value)}
-                      className="w-full p-2 border border-gray-300 rounded text-sm mb-2"
-                    />
-                    <div className="max-h-96 overflow-y-auto space-y-2">
-                      {filteredRoles.map((role) => (
-                        <label key={role} className="flex items-center space-x-2 text-sm">
-                          <input
-                            type="checkbox"
-                            checked={safeFilters.roles.includes(role)}
-                            onChange={() => toggleRole(role)}
-                            className="w-4 h-4 text-orange-600 rounded"
-                          />
-                          <span className="text-gray-700">{role}</span>
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
               {/* Localisation */}
-              <div className={`mb-2 border-b border-gray-100 last:border-b-0 ${openContactFilters.localisation ? 'border-2 border-orange-500 rounded p-3' : ''}` }>
+              <div className={`mb-2 border-b border-gray-100 last:border-b-0 ${openEntrepriseFilters.localisation ? 'border-2 border-orange-500 rounded p-3' : ''}` }>
                 <button
                   className="w-full flex items-center justify-between py-2 text-left"
-                  onClick={() => toggleContactFilter('localisation')}
+                  onClick={() => toggleEntrepriseFilter('localisation')}
                 >
                   <span className="font-semibold">Localisation</span>
                   <ChevronDown
-                    className={`w-5 h-5 text-gray-500 transition-transform ${openContactFilters.localisation ? 'rotate-180' : ''}`}
+                    className={`w-5 h-5 text-gray-500 transition-transform ${openEntrepriseFilters.localisation ? 'rotate-180' : ''}`}
                   />
                 </button>
-                {openContactFilters.localisation && (
-                  <div className="pt-2 pb-4 space-y-2 max-h-96 overflow-y-auto">
-                    {availableCities.map((city) => (
-                      <label key={city} className="flex items-center space-x-2 text-sm">
-                        <input
-                          type="checkbox"
-                          checked={safeFilters.cities.includes(city)}
-                          onChange={() => toggleCity(city)}
-                          className="w-4 h-4 text-orange-600 rounded"
-                        />
-                        <span className="text-gray-700 flex items-center gap-1">
-                          <MapPin className="w-3 h-3" />
-                          {city}
-                        </span>
-                      </label>
-                    ))}
+                {openEntrepriseFilters.localisation && (
+                  <div className="pt-2 pb-4 space-y-6">
+                    {/* Section Ville */}
+                    <div className="space-y-2">
+                      <div className="font-semibold text-base text-gray-700 mb-1">Ville</div>
+                      <input
+                        type="text"
+                        placeholder="Rechercher une ville..."
+                        value={citySearchTerm}
+                        onChange={(e) => setCitySearchTerm(e.target.value)}
+                        className="w-full p-2 border border-gray-300 rounded text-sm mb-2"
+                      />
+                      <div className="max-h-64 overflow-y-auto border border-gray-200 rounded p-2 bg-white">
+                        {availableCities
+                          .filter(city => 
+                            !citySearchTerm || 
+                            city.toLowerCase().includes(citySearchTerm.toLowerCase())
+                          )
+                          .map((city) => (
+                            <label key={city} className="flex items-center space-x-2 text-sm cursor-pointer hover:bg-gray-50 rounded p-1">
+                              <input
+                                type="checkbox"
+                                checked={safeFilters.cities.includes(city)}
+                                onChange={() => toggleCity(city)}
+                                className="w-4 h-4 text-orange-600 rounded"
+                              />
+                              <span className="text-gray-700 flex items-center gap-1">
+                                <MapPin className="w-3 h-3" />
+                                {city}
+                              </span>
+                            </label>
+                          ))}
+                      </div>
+                    </div>
+
+                    {/* Séparateur */}
+                    <div className="border-t border-gray-200 my-2"></div>
+
+                    {/* Section Département */}
+                    <div className="space-y-2">
+                      <div className="font-semibold text-base text-gray-700 mb-1">Département</div>
+                      <input
+                        type="text"
+                        placeholder="Rechercher un département..."
+                        value={departmentSearchTerm}
+                        onChange={(e) => setDepartmentSearchTerm(e.target.value)}
+                        className="w-full p-2 border border-gray-300 rounded text-sm mb-2"
+                      />
+                      <div className="max-h-64 overflow-y-auto border border-gray-200 rounded p-2 bg-white">
+                        {departementsFrance
+                          .filter(dept => 
+                            !departmentSearchTerm || 
+                            dept.departement.toLowerCase().includes(departmentSearchTerm.toLowerCase()) ||
+                            dept.code.toLowerCase().includes(departmentSearchTerm.toLowerCase())
+                          )
+                          .map((dept) => (
+                            <label key={dept.code} className="flex items-center space-x-2 text-sm cursor-pointer hover:bg-gray-50 rounded p-1">
+                              <input
+                                type="checkbox"
+                                checked={selectedDepartments.includes(dept.departement)}
+                                onChange={() => {
+                                  if (selectedDepartments.includes(dept.departement)) {
+                                    handleDepartmentToggle(dept.departement);
+                                  } else {
+                                    handleDepartmentAdd(dept.departement);
+                                  }
+                                }}
+                                className="w-4 h-4 text-orange-600 rounded"
+                              />
+                              <span className="text-gray-700 flex items-center gap-1">
+                                <MapPin className="w-3 h-3" />
+                                <span className="font-mono text-xs bg-gray-100 px-1 rounded">{dept.code}</span>
+                                {dept.departement}
+                              </span>
+                            </label>
+                          ))}
+                      </div>
+                    </div>
+
+                    {/* Départements sélectionnés */}
+                    {selectedDepartments.length > 0 && (
+                      <div className="mt-3 space-y-1">
+                        <span className="text-xs font-medium text-gray-700">Départements sélectionnés:</span>
+                        <div className="flex flex-wrap gap-1">
+                          {selectedDepartments.map(department => {
+                            const deptData = departementsFrance.find(d => d.departement === department);
+                            return (
+                              <span 
+                                key={department}
+                                className="inline-flex items-center px-2 py-1 rounded text-xs bg-orange-100 text-orange-800"
+                                title={deptData ? `Code: ${deptData.code}` : ''}
+                              >
+                                {deptData && <span className="font-mono mr-1">{deptData.code}</span>}
+                                {department}
+                                <button
+                                  onClick={() => handleDepartmentToggle(department)}
+                                  className="ml-1 text-orange-600 hover:text-orange-800"
+                                >
+                                  ×
+                                </button>
+                              </span>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Séparateur */}
+                    <div className="border-t border-gray-200 my-2"></div>
+
+                    {/* Section Région */}
+                    <div className="space-y-2">
+                      <div className="font-semibold text-base text-gray-700 mb-1">Région</div>
+                      <input
+                        type="text"
+                        placeholder="Rechercher une région..."
+                        value={regionSearchTerm}
+                        onChange={(e) => setRegionSearchTerm(e.target.value)}
+                        className="w-full p-2 border border-gray-300 rounded text-sm mb-2"
+                      />
+                      <div className="max-h-64 overflow-y-auto border border-gray-200 rounded p-2 bg-white">
+                        {regionsFrance
+                          .filter(region => 
+                            !regionSearchTerm || 
+                            region.region.toLowerCase().includes(regionSearchTerm.toLowerCase()) ||
+                            region.code.toLowerCase().includes(regionSearchTerm.toLowerCase())
+                          )
+                          .map((region) => (
+                            <label key={region.code} className="flex items-center space-x-2 text-sm cursor-pointer hover:bg-gray-50 rounded p-1">
+                              <input
+                                type="checkbox"
+                                checked={selectedRegions.includes(region.region)}
+                                onChange={() => {
+                                  if (selectedRegions.includes(region.region)) {
+                                    handleRegionToggle(region.region);
+                                  } else {
+                                    handleRegionAdd(region.region);
+                                  }
+                                }}
+                                className="w-4 h-4 text-orange-600 rounded"
+                              />
+                              <span className="text-gray-700 flex items-center gap-1">
+                                <MapPin className="w-3 h-3" />
+                                <span className="font-mono text-xs bg-gray-100 px-1 rounded">{region.code}</span>
+                                {region.region}
+                              </span>
+                            </label>
+                          ))}
+                      </div>
+                    </div>
+
+                    {/* Régions sélectionnées */}
+                    {selectedRegions.length > 0 && (
+                      <div className="mt-3 space-y-1">
+                        <span className="text-xs font-medium text-gray-700">Régions sélectionnées:</span>
+                        <div className="flex flex-wrap gap-1">
+                          {selectedRegions.map(region => {
+                            const regionData = regionsFrance.find(r => r.region === region);
+                            return (
+                              <span 
+                                key={region}
+                                className="inline-flex items-center px-2 py-1 rounded text-xs bg-blue-100 text-blue-800"
+                                title={regionData ? `Code: ${regionData.code}` : ''}
+                              >
+                                {regionData && <span className="font-mono mr-1">{regionData.code}</span>}
+                                {region}
+                                <button
+                                  onClick={() => handleRegionToggle(region)}
+                                  className="ml-1 text-blue-600 hover:text-blue-800"
+                                >
+                                  ×
+                                </button>
+                              </span>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
             </MainSection>
+
+            
+
           </>
         ) : (
           <>
             <MainSection title="Contact" id="contact">
+              {/* Formulaire de recherche Pronto */}
+              {isContactPage && (
+                <div className="mb-6 border-b border-gray-200 pb-6">
+                  <ProntoSearchForm
+                    onSearchResults={(results) => {
+                      // Émettre un événement personnalisé pour communiquer avec la page Contact
+                      window.dispatchEvent(new CustomEvent('prontoSearchResults', {
+                        detail: results
+                      }));
+                    }}
+                    onLoading={(loading) => {
+                      // Émettre un événement personnalisé pour l'état de chargement
+                      window.dispatchEvent(new CustomEvent('prontoLoading', {
+                        detail: loading
+                      }));
+                    }}
+                  />
+                </div>
+              )}
+
               {/* Rôles */}
               <div className={`mb-2 border-b border-gray-100 last:border-b-0 ${openContactFilters.roles ? 'border-2 border-orange-500 rounded p-3' : ''}` }>
                 <button
@@ -1155,220 +1600,366 @@ export const FiltersPanel: React.FC<FiltersPanelProps> = ({
                   />
                 </button>
                 {openContactFilters.localisation && (
-                  <div className="pt-2 pb-4 space-y-2 max-h-96 overflow-y-auto">
-                    {availableCities.map((city) => (
-                      <label key={city} className="flex items-center space-x-2 text-sm">
-                        <input
-                          type="checkbox"
-                          checked={safeFilters.cities.includes(city)}
-                          onChange={() => toggleCity(city)}
-                          className="w-4 h-4 text-orange-600 rounded"
-                        />
-                        <span className="text-gray-700 flex items-center gap-1">
-                          <MapPin className="w-3 h-3" />
-                          {city}
-                        </span>
-                      </label>
-                    ))}
+                  <div className="pt-2 pb-4 space-y-6">
+                    {/* Section Ville */}
+                    <div className="space-y-2">
+                      <div className="font-semibold text-base text-gray-700 mb-1">Ville</div>
+                      <div className="max-h-64 overflow-y-auto border border-gray-200 rounded p-2 bg-white">
+                        {availableCities.map((city) => (
+                          <label key={city} className="flex items-center space-x-2 text-sm cursor-pointer hover:bg-gray-50 rounded p-1">
+                            <input
+                              type="checkbox"
+                              checked={safeFilters.cities.includes(city)}
+                              onChange={() => toggleCity(city)}
+                              className="w-4 h-4 text-orange-600 rounded"
+                            />
+                            <span className="text-gray-700 flex items-center gap-1">
+                              <MapPin className="w-3 h-3" />
+                              {city}
+                            </span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Séparateur */}
+                    <div className="border-t border-gray-200 my-2"></div>
+
+                    {/* Section Département */}
+                    <div className="space-y-2">
+                      <div className="font-semibold text-base text-gray-700 mb-1">Département</div>
+                      <input
+                        type="text"
+                        placeholder="Rechercher un département..."
+                        value={departmentSearchTerm}
+                        onChange={(e) => setDepartmentSearchTerm(e.target.value)}
+                        className="w-full p-2 border border-gray-300 rounded text-sm mb-2"
+                      />
+                      <div className="max-h-64 overflow-y-auto border border-gray-200 rounded p-2 bg-white">
+                        {departementsFrance
+                          .filter(dept => 
+                            !departmentSearchTerm || 
+                            dept.departement.toLowerCase().includes(departmentSearchTerm.toLowerCase()) ||
+                            dept.code.toLowerCase().includes(departmentSearchTerm.toLowerCase())
+                          )
+                          .map((dept) => (
+                            <label key={dept.code} className="flex items-center space-x-2 text-sm cursor-pointer hover:bg-gray-50 rounded p-1">
+                              <input
+                                type="checkbox"
+                                checked={selectedDepartments.includes(dept.departement)}
+                                onChange={() => {
+                                  if (selectedDepartments.includes(dept.departement)) {
+                                    handleDepartmentToggle(dept.departement);
+                                  } else {
+                                    handleDepartmentAdd(dept.departement);
+                                  }
+                                }}
+                                className="w-4 h-4 text-orange-600 rounded"
+                              />
+                              <span className="text-gray-700 flex items-center gap-1">
+                                <MapPin className="w-3 h-3" />
+                                <span className="font-mono text-xs bg-gray-100 px-1 rounded">{dept.code}</span>
+                                {dept.departement}
+                              </span>
+                            </label>
+                          ))}
+                      </div>
+                    </div>
+
+                    {/* Départements sélectionnés */}
+                    {selectedDepartments.length > 0 && (
+                      <div className="mt-3 space-y-1">
+                        <span className="text-xs font-medium text-gray-700">Départements sélectionnés:</span>
+                        <div className="flex flex-wrap gap-1">
+                          {selectedDepartments.map(department => {
+                            const deptData = departementsFrance.find(d => d.departement === department);
+                            return (
+                              <span 
+                                key={department}
+                                className="inline-flex items-center px-2 py-1 rounded text-xs bg-orange-100 text-orange-800"
+                                title={deptData ? `Code: ${deptData.code}` : ''}
+                              >
+                                {deptData && <span className="font-mono mr-1">{deptData.code}</span>}
+                                {department}
+                                <button
+                                  onClick={() => handleDepartmentToggle(department)}
+                                  className="ml-1 text-orange-600 hover:text-orange-800"
+                                >
+                                  ×
+                                </button>
+                              </span>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Séparateur */}
+                    <div className="border-t border-gray-200 my-2"></div>
+
+                    {/* Section Région */}
+                    <div className="space-y-2">
+                      <div className="font-semibold text-base text-gray-700 mb-1">Région</div>
+                      <input
+                        type="text"
+                        placeholder="Rechercher une région..."
+                        value={regionSearchTerm}
+                        onChange={(e) => setRegionSearchTerm(e.target.value)}
+                        className="w-full p-2 border border-gray-300 rounded text-sm mb-2"
+                      />
+                      <div className="max-h-64 overflow-y-auto border border-gray-200 rounded p-2 bg-white">
+                        {regionsFrance
+                          .filter(region => 
+                            !regionSearchTerm || 
+                            region.region.toLowerCase().includes(regionSearchTerm.toLowerCase()) ||
+                            region.code.toLowerCase().includes(regionSearchTerm.toLowerCase())
+                          )
+                          .map((region) => (
+                            <label key={region.code} className="flex items-center space-x-2 text-sm cursor-pointer hover:bg-gray-50 rounded p-1">
+                              <input
+                                type="checkbox"
+                                checked={selectedRegions.includes(region.region)}
+                                onChange={() => {
+                                  if (selectedRegions.includes(region.region)) {
+                                    handleRegionToggle(region.region);
+                                  } else {
+                                    handleRegionAdd(region.region);
+                                  }
+                                }}
+                                className="w-4 h-4 text-orange-600 rounded"
+                              />
+                              <span className="text-gray-700 flex items-center gap-1">
+                                <MapPin className="w-3 h-3" />
+                                <span className="font-mono text-xs bg-gray-100 px-1 rounded">{region.code}</span>
+                                {region.region}
+                              </span>
+                            </label>
+                          ))}
+                      </div>
+                    </div>
+
+                    {/* Régions sélectionnées */}
+                    {selectedRegions.length > 0 && (
+                      <div className="mt-3 space-y-1">
+                        <span className="text-xs font-medium text-gray-700">Régions sélectionnées:</span>
+                        <div className="flex flex-wrap gap-1">
+                          {selectedRegions.map(region => {
+                            const regionData = regionsFrance.find(r => r.region === region);
+                            return (
+                              <span 
+                                key={region}
+                                className="inline-flex items-center px-2 py-1 rounded text-xs bg-blue-100 text-blue-800"
+                                title={regionData ? `Code: ${regionData.code}` : ''}
+                              >
+                                {regionData && <span className="font-mono mr-1">{regionData.code}</span>}
+                                {region}
+                                <button
+                                  onClick={() => handleRegionToggle(region)}
+                                  className="ml-1 text-blue-600 hover:text-blue-800"
+                                >
+                                  ×
+                                </button>
+                              </span>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
             </MainSection>
             <MainSection title="Entreprise" id="entreprise">
-              {/* Activités */}
-              <div className="mb-2 border-b border-gray-100 last:border-b-0">
-                <button
-                  className="w-full flex items-center justify-between py-2 text-left"
-                  onClick={() => toggleEntrepriseFilter('activites')}
-                >
-                  <span className="font-semibold">Activités</span>
-                  <ChevronDown
-                    className={`w-5 h-5 text-gray-500 transition-transform ${openEntrepriseFilters.activites ? 'rotate-180' : ''}`}
-                  />
-                </button>
-                {openEntrepriseFilters.activites && (
-                  <div className="pt-2 pb-4 space-y-4">
-                    {/* Onglets de recherche */}
-                    <div className="flex flex-wrap gap-2">
-                      {['Code NAF', 'Activité Google (GMB)', 'Sémantique', 'Enseigne/Franchise'].map((label, index) => (
-                        <button
-                          key={index}
-                          className={`px-3 py-1 rounded text-sm font-medium border ${
-                            label === 'Code NAF' ? 'bg-orange-600 text-white border-orange-600' : 'text-orange-600 border-orange-300'
-                          } hover:bg-orange-50 transition`}
-                          type="button"
-                        >
-                          {label}
-                        </button>
-                      ))}
-                    </div>
+              {/* Entreprise */}
+              <div className={`mb-2 border-b border-gray-100 last:border-b-0 border-2 border-orange-500 rounded p-3` }>
 
-                    {/* Zone de recherche */}
+                  <div className="pt-2 pb-4 space-y-4">
+                    {/* Barre de recherche */}
                     <input
                       type="text"
-                      placeholder="Mots-clés, code NAF"
-                      value={activitySearch}
-                      onChange={(e) => setActivitySearch(e.target.value)}
+                      placeholder="Rechercher une entreprise..."
+                      value={companySearchTerm}
+                      onChange={(e) => handleCompanySearch(e.target.value)}
                       className="w-full p-2 border border-gray-300 rounded text-sm"
                     />
 
-                    {/* Boutons de code et chargement */}
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        className="flex-1 py-1.5 px-3 bg-gray-100 hover:bg-gray-200 text-sm text-gray-700 rounded border border-gray-300"
-                        onClick={() => setNafModalOpen(true)}
-                      >
-                        📘 Codes NAF
-                      </button>
-                      <button
-                        type="button"
-                        className="flex-1 py-1.5 px-3 bg-gray-100 hover:bg-gray-200 text-sm text-gray-700 rounded border border-gray-300"
-                      >
-                        ⬆️ Charger
-                      </button>
-                    </div>
+                    {/* Liste des entreprises */}
+                    {loadingCompanies ? (
+                      <div className="text-center py-4">
+                        <span className="text-sm text-gray-500">Chargement des entreprises...</span>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        <div className="text-xs text-gray-600 mb-2">
+                          {companyTotalResults > 0 ? `${companyTotalResults} entreprises trouvées` : 'Aucune entreprise trouvée'}
+                        </div>
+                        
+                        <div className="max-h-64 overflow-y-auto space-y-1">
+                          {companies.map((company) => (
+                            <button
+                              key={company.siren}
+                              onClick={() => handleCompanySelect(company)}
+                              className={`w-full text-left p-2 rounded text-sm hover:bg-gray-50 transition-colors ${
+                                filters.selectedCompany === (company.nom_raison_sociale || company.nom_complet)
+                                  ? 'bg-orange-100 text-orange-800 border border-orange-300'
+                                  : 'text-gray-700'
+                              }`}
+                            >
+                              <div className="font-medium truncate">
+                                {company.nom_raison_sociale || company.nom_complet}
+                              </div>
+                              {company.nom_raison_sociale && company.nom_raison_sociale !== company.nom_complet && (
+                                <div className="text-xs text-gray-500 truncate">
+                                  {company.nom_complet}
+                                </div>
+                              )}
+                            </button>
+                          ))}
+                        </div>
 
-                    {/* Checkbox d'exclusion */}
-                    <label className="flex items-center space-x-2 text-sm">
-                          <input
-                            type="checkbox"
-                            className="w-4 h-4 text-orange-600 rounded"
-                        onChange={(e) =>
-                          updateFilters({
-                            excludeSelectedActivities: e.target.checked,
-                          } as any) // ajuster selon ton type exact
-                        }
-                          />
-                      <span className="text-gray-700">Exclure les éléments sélectionnés</span>
-                        </label>
+                        {/* Pagination */}
+                        {companyTotalPages > 1 && (
+                          <div className="flex justify-between items-center pt-2 border-t border-gray-200">
+                            <button
+                              onClick={() => handleCompanyPageChange(companyCurrentPage - 1)}
+                              disabled={companyCurrentPage <= 1}
+                              className="px-2 py-1 text-xs bg-gray-100 text-gray-700 rounded disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-200"
+                            >
+                              Précédent
+                            </button>
+                            <span className="text-xs text-gray-600">
+                              Page {companyCurrentPage} sur {companyTotalPages}
+                            </span>
+                            <button
+                              onClick={() => handleCompanyPageChange(companyCurrentPage + 1)}
+                              disabled={companyCurrentPage >= companyTotalPages}
+                              className="px-2 py-1 text-xs bg-gray-100 text-gray-700 rounded disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-200"
+                            >
+                              Suivant
+                            </button>
+                          </div>
+                        )}
+
+                        {/* Entreprise sélectionnée */}
+                        {filters.selectedCompany && (
+                          <div className="pt-2 border-t border-gray-200">
+                            <div className="text-xs font-medium text-gray-700 mb-1">Entreprise sélectionnée:</div>
+                            <div className="flex items-center justify-between p-2 bg-orange-50 rounded border border-orange-200">
+                              <span className="text-sm text-orange-800 truncate flex-1">
+                                {filters.selectedCompany}
+                              </span>
+                              <button
+                                onClick={() => updateFilters({ selectedCompany: undefined })}
+                                className="ml-2 text-orange-600 hover:text-orange-800 text-sm"
+                              >
+                                ×
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
-                )}
               </div>
-              {/* Chiffres clés */}
-              <div className="mb-2 border-b border-gray-100 last:border-b-0">
-                <button
-                  className="w-full flex items-center justify-between py-2 text-left"
-                  onClick={() => toggleEntrepriseFilter('chiffres')}
-                >
-                  <span className="font-semibold">Chiffres clés</span>
-                  <ChevronDown
-                    className={`w-5 h-5 text-gray-500 transition-transform ${openEntrepriseFilters.chiffres ? 'rotate-180' : ''}`}
-                  />
-                </button>
-                {openEntrepriseFilters.chiffres && (
-                  <div className="pt-2 pb-4 space-y-4 max-h-96 overflow-y-auto">
-                    <RangeSlider
-                      min={ageRange[0]}
-                      max={ageRange[1]}
-                      value={filters.ageRange}
-                      onChange={(value) => updateFilters({ ageRange: value })}
-                      label="Âge de l'entreprise"
-                      unit=" ans"
-                    />
-                    <RangeSlider
-                      min={employeeRange[0]}
-                      max={employeeRange[1]}
-                      value={filters.employeeRange}
-                      onChange={(value) => updateFilters({ employeeRange: value })}
-                      label="Nombre d'employés"
-                    />
-                    <RangeSlider
-                      min={revenueRange[0]}
-                      max={revenueRange[1]}
-                      value={filters.revenueRange}
-                      onChange={(value) => updateFilters({ revenueRange: value })}
-                      label="Chiffre d'affaires"
-                      formatValue={(v) => `${Math.round(v / 1000)}k`}
-                      unit="€"
-                    />
+
+              {/* Liste */}
+              <div className={`mb-2 border-b border-gray-100 last:border-b-0 border-2 border-orange-500 rounded p-3` }>
+                <div className="pt-2 pb-4 space-y-4">
+                  {/* Affichage de la liste sélectionnée */}
+                  {selectedList && (
+                    <div className="mb-3 p-2 bg-orange-50 border border-orange-200 rounded">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-medium text-orange-800">Liste active:</span>
+                          <span className="text-xs text-orange-700 truncate">{selectedList.listName}</span>
+                          <span className="text-xs text-orange-600">({selectedList.companyCount})</span>
+                        </div>
+                        <button
+                          onClick={() => {
+                            // Émettre un événement pour retirer le filtre de liste
+                            window.dispatchEvent(new CustomEvent('removeListFilter'));
+                          }}
+                          className="text-orange-600 hover:text-orange-800 text-xs font-medium px-1 py-0.5 rounded hover:bg-orange-100 transition-colors"
+                          title="Retirer ce filtre de liste"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="text-xs text-gray-600 mb-2">
+                    {loadingLists ? (
+                      <span>Chargement des listes...</span>
+                    ) : (
+                      <span>{importedLists.length} liste(s) disponible(s)</span>
+                    )}
                   </div>
-                )}
-              </div>
-              {/* Juridique */}
-              <div className="mb-2 border-b border-gray-100 last:border-b-0">
-                <button
-                  className="w-full flex items-center justify-between py-2 text-left"
-                  onClick={() => toggleEntrepriseFilter('forme')}
-                >
-                  <span className="font-semibold">Juridique</span>
-                  <ChevronDown
-                    className={`w-5 h-5 text-gray-500 transition-transform ${openEntrepriseFilters.forme ? 'rotate-180' : ''}`}
-                  />
-                </button>
-                {openEntrepriseFilters.forme && (
-                  <div className="pt-2 pb-4 space-y-6 max-h-96 overflow-y-auto">
-                    {/* Section Forme juridique */}
-                    <div>
-                      <div className="font-semibold text-xs text-gray-500 mb-1">Forme juridique</div>
-                      <input
-                        type="text"
-                        placeholder="Rechercher une forme juridique..."
-                        value={legalFormSearch}
-                        onChange={e => setLegalFormSearch(e.target.value)}
-                        className="w-full p-2 border border-gray-300 rounded text-sm mb-2"
-                      />
-                      {naturesJuridiques
-                        .filter(nature => nature.titre.toLowerCase().includes(legalFormSearch.toLowerCase()))
-                        .map((nature) => (
-                          <label key={nature.id} className="flex items-center space-x-2 text-sm">
-                        <input
-                          type="checkbox"
-                              checked={safeFilters.legalForms.includes(nature.id)}
-                              onChange={() => {
-                                const currentIds = safeFilters.legalForms || [];
-                                const newIds = currentIds.includes(nature.id)
-                                  ? currentIds.filter((id) => id !== nature.id)
-                                  : [...currentIds, nature.id];
-                                setFilters({ ...filters, legalForms: newIds });
-                              }}
-                          className="w-4 h-4 text-orange-600 rounded"
-                        />
-                            <span className="text-gray-700">{nature.titre}</span>
-                      </label>
-                    ))}
-                  </div>
-                    {/* Section Convention Collective */}
-                    <div>
-                      <div className="font-semibold text-xs text-gray-500 mb-1 mt-4">Convention Collective</div>
-                    <input
-                      type="text"
-                        placeholder="Rechercher une convention..."
-                        value={conventionSearch}
-                        onChange={e => setConventionSearch(e.target.value)}
-                      className="w-full p-2 border border-gray-300 rounded text-sm mb-2"
-                    />
-                      {conventionsCollectives
-                        .filter(c => c.titre.toLowerCase().includes(conventionSearch.toLowerCase()))
-                        .map(c => (
-                          <label key={c.idcc} className="flex items-center space-x-2 text-sm">
-                          <input
-                            type="checkbox"
-                              checked={selectedConventionId === c.idcc}
-                              onChange={() => {
-                                if (selectedConventionId === c.idcc) {
-                                  setSelectedConventionId(null);
-                                  setFilters({ ...filters, id_convention_collective: undefined });
-                                } else {
-                                  setSelectedConventionId(c.idcc);
-                                  setFilters({ ...filters, id_convention_collective: c.idcc });
+                  
+                  {loadingLists ? (
+                    <div className="text-center py-4">
+                      <span className="text-sm text-gray-500">Chargement des listes...</span>
+                    </div>
+                  ) : importedLists.length === 0 ? (
+                    <div className="text-center py-4">
+                      <span className="text-sm text-gray-500">Aucune liste disponible</span>
+                    </div>
+                  ) : (
+                    <div className="max-h-64 overflow-y-auto space-y-1">
+                      {importedLists.map((list) => (
+                        <button
+                          key={list.id}
+                          onClick={async () => {
+                            try {
+                              // Récupérer les noms d'entreprises de la liste
+                              const res = await axios.get(`/api/list/${list.id}/first-column`);
+                              const companyNames = res.data;
+                              console.log('Liste des noms d\'entreprises récupérée:', companyNames);
+                              
+                              // Émettre un événement avec les noms d'entreprises pour la recherche
+                              window.dispatchEvent(new CustomEvent('searchByCompanyList', { 
+                                detail: {
+                                  listId: list.id,
+                                  listName: list.nom,
+                                  companyNames: companyNames
                                 }
-                              }}
-                            className="w-4 h-4 text-orange-600 rounded"
-                          />
-                            <span className="text-gray-700">{c.titre}</span>
-                        </label>
+                              }));
+                              
+                              console.log('Événement searchByCompanyList émis avec:', {
+                                listId: list.id,
+                                listName: list.nom,
+                                companyCount: companyNames.length
+                              });
+                            } catch (err) {
+                              alert("Erreur lors de la récupération des noms d'entreprise !");
+                              console.error(err);
+                            }
+                          }}
+                          className={`w-full text-left p-2 rounded text-sm transition-colors ${
+                            selectedList && selectedList.listId === list.id
+                              ? 'bg-orange-100 text-orange-800 border border-orange-300'
+                              : 'hover:bg-gray-50 text-gray-700 hover:text-orange-600'
+                          }`}
+                          title={`Cliquer pour utiliser la liste "${list.nom}" (${list.elements} entreprises)`}
+                        >
+                          <div className="font-medium truncate">
+                            {list.nom}
+                          </div>
+                          <div className="text-xs text-gray-500 truncate">
+                            {list.elements} entreprise(s) • {new Date(list.created_at).toLocaleDateString("fr-FR")}
+                          </div>
+                        </button>
                       ))}
                     </div>
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
             </MainSection>
           </>
         )}
       </div>
 
-      {(safeFilters.activities.length > 0 || safeFilters.cities.length > 0 || safeFilters.legalForms.length > 0 || safeFilters.roles.length > 0) && (
+      {(safeFilters.activities.length > 0 || safeFilters.cities.length > 0 || safeFilters.legalForms.length > 0 || safeFilters.roles.length > 0 || filters.selectedCompany || filters.selectedContact) && (
         <div className="p-4 bg-orange-50 border-t border-orange-200">
           <div className="text-sm font-medium text-orange-800 mb-2">Filtres actifs:</div>
           <div className="space-y-1 text-xs text-orange-700">
@@ -1376,6 +1967,8 @@ export const FiltersPanel: React.FC<FiltersPanelProps> = ({
             {safeFilters.cities.length > 0 && <div>• {safeFilters.cities.length} ville(s)</div>}
             {safeFilters.legalForms.length > 0 && <div>• {safeFilters.legalForms.length} forme(s) juridique(s)</div>}
             {safeFilters.roles.length > 0 && <div>• {safeFilters.roles.length} rôle(s)</div>}
+            {filters.selectedCompany && <div>• Entreprise: {filters.selectedCompany}</div>}
+            {filters.selectedContact && <div>• Entreprise (via contact): {filters.selectedContact}</div>}
           </div>
         </div>
       )}

@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_BASE_URL = 'https://prosperiantest1.onrender.com';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://prosperian.onrender.com';
 
 export interface StripePrice {
   id: string;

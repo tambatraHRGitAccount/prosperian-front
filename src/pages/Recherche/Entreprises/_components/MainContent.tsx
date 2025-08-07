@@ -41,6 +41,20 @@ export const MainContent: React.FC<MainContentProps> = ({
   const start = (currentPage - 1) * itemsPerPage + 1;
   const end = Math.min(currentPage * itemsPerPage, totalBusinesses);
 
+  // Fonction pour gérer la sélection des checkboxes
+  const handleCheckboxChange = (id: number) => {
+    const idString = id.toString();
+    setSelectedBusinesses(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(idString)) {
+        newSet.delete(idString);
+      } else {
+        newSet.add(idString);
+      }
+      return newSet;
+    });
+  };
+
   // Pagination, export, etc. peuvent être adaptés ici si besoin
 
   return (
@@ -111,7 +125,7 @@ export const MainContent: React.FC<MainContentProps> = ({
                       id={Number(business.siren)}
                       showCheckbox
                       checked={selectedBusinesses.has(business.siren)}
-                      onCheckboxChange={() => {}}
+                      onCheckboxChange={handleCheckboxChange}
                       isProntoData={false}
                       loading={loading}
                     />

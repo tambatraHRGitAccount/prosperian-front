@@ -74,6 +74,33 @@ export class ListService {
     }
   }
 
+  // Créer une liste à partir des entreprises sélectionnées
+  static async createListFromSelection(nom: string, selectedBusinesses: any[]): Promise<List> {
+    try {
+      const response = await fetch(buildApiUrl('/api/list/create-from-selection'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          nom,
+          selectedBusinesses
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      return data;
+    } catch (error) {
+      console.error('Error creating list from selection:', error);
+      throw error;
+    }
+  }
+
   // Mettre à jour une liste
   static async updateList(id: string, updates: Partial<List>): Promise<List> {
     try {

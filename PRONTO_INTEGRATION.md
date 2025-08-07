@@ -76,57 +76,124 @@ La page `src/pages/Recherche/Entreprises/index.tsx` a été modifiée pour utili
 
 ### Backend (prosperian-back)
 
-- `GET /api/pronto/searches` : Liste des recherches
-- `GET /api/pronto/searches/{id}` : Détails d'une recherche
-- `GET /api/pronto/searches/{id}/leads` : Leads d'une recherche
-- `GET /api/pronto-workflows/all-searches-complete` : Workflow complet
+#### ✅ Endpoints Disponibles
+- `GET /api/pronto/searches` : Liste des recherches disponibles
+- `POST /api/pronto/lists` : Création de listes d'entreprises
+- `GET /api/pronto/status` : Statut des services Pronto
+- `GET /api/pronto-workflows/diagnostic` : Diagnostic complet
+
+#### ⚠️ Endpoints Indisponibles (API Pronto modifiée)
+- `POST /api/pronto/search-leads` : Recherche de leads (503)
+- `POST /api/pronto/search-leads-from-company` : Leads par entreprise (503)
+- `POST /api/pronto/leads/extract` : Extraction de leads (503)
+- `GET /api/pronto/searches/{id}/leads` : Leads d'une recherche (404)
+- `GET /api/pronto-workflows/all-searches-complete` : Workflow complet (404)
 
 ### Structure des données
 
-#### Réponse de `/api/pronto/searches`
+#### Réponse de `/api/pronto/searches` ✅
 ```json
 {
+  "success": true,
   "searches": [
     {
-      "id": "3c90c3cc-0d44-4b50-8888-8dd25736052a",
-      "name": "Nom de la recherche",
-      "created_at": "2023-11-07T05:31:56Z"
+      "id": "39775257-9a6f-433a-ac2c-2cd3a39605a0",
+      "name": "[Atlas Digital] Resp. Marketing - 1 / 50",
+      "leads_count": 12,
+      "created_at": "2025-08-06T14:59:33.284Z",
+      "access_url": "/api/pronto-workflows/search-leads/39775257-9a6f-433a-ac2c-2cd3a39605a0"
     }
+  ],
+  "total": 22,
+  "message": "22 recherches disponibles"
+}
+```
+
+#### Réponse de `/api/pronto/lists` ✅ (Nouveau)
+```json
+{
+  "success": true,
+  "list": {
+    "id": "df62412c-55a6-4fe2-af91-0b74b9e0f454",
+    "name": "Ma liste d'entreprises",
+    "webhook_url": "https://webhook.example.com",
+    "companies_count": 2,
+    "companies": [
+      {
+        "name": "Pronto",
+        "country_code": "FR",
+        "domain": "prontohq.com",
+        "linkedin_url": "https://www.linkedin.com/company/prontohq"
+      }
+    ],
+    "created_at": "2025-08-06T21:06:07.918Z",
+    "pronto_response": {
+      "id": "df62412c-55a6-4fe2-af91-0b74b9e0f454",
+      "linkedin_id": "7358966630862757888",
+      "type": "companies"
+    }
+  },
+  "message": "Liste créée avec succès avec 2 entreprise(s)"
+}
+```
+
+#### Réponse de `/api/pronto/status` ✅ (Nouveau)
+```json
+{
+  "success": true,
+  "status": {
+    "timestamp": "2025-08-06T21:08:13.856Z",
+    "services": {
+      "authentication": { "available": true, "message": "Authentification réussie" },
+      "searches": { "available": true, "message": "Endpoint /searches disponible" },
+      "lists_creation": { "available": true, "message": "Endpoint /lists disponible" },
+      "leads_extraction": { "available": false, "message": "Endpoints d'extraction directe indisponibles" }
+    },
+    "available_endpoints": ["GET /api/pronto/searches", "POST /api/pronto/lists"],
+    "unavailable_endpoints": ["POST /api/pronto/search-leads", "POST /api/pronto/leads/extract"]
+  }
+}
+```
+
+#### ⚠️ Endpoints Indisponibles - Exemples de Réponses d'Erreur
+
+##### Réponse de `/api/pronto/search-leads` (503)
+```json
+{
+  "success": false,
+  "error": "Service de recherche directe temporairement indisponible",
+  "message": "L'API Pronto a modifié ses endpoints. Veuillez utiliser les recherches existantes.",
+  "alternative": {
+    "description": "Recherches existantes qui pourraient vous intéresser",
+    "searches": [],
+    "total_available_searches": 22
+  },
+  "suggestions": [
+    "Utilisez l'endpoint /api/pronto/searches pour voir les recherches existantes",
+    "Consultez /api/pronto/status pour voir l'état des services"
   ]
 }
 ```
 
-#### Réponse de `/api/pronto/searches/{id}`
+##### Réponse de `/api/pronto/leads/extract` (503)
 ```json
 {
-  "search": {
-    "id": "3c90c3cc-0d44-4b50-8888-8dd25736052a",
-    "name": "Nom de la recherche",
-    "created_at": "2023-11-07T05:31:56Z"
+  "success": false,
+  "error": "Service d'extraction de leads temporairement indisponible",
+  "message": "L'API Pronto a modifié ses endpoints. Cette fonctionnalité n'est plus disponible.",
+  "request_details": {
+    "query": "software engineers",
+    "filters": { "job_title": "Software Engineer", "location": "Paris, France" },
+    "limit": 10
   },
-  "leads": [
-    {
-      "lead": {
-        "first_name": "John",
-        "last_name": "Doe",
-        "full_name": "John Doe",
-        "most_probable_email": "john.doe@company.com",
-        "phones": ["+33123456789"],
-        "title": "CEO",
-        "linkedin_profile_url": "https://linkedin.com/in/johndoe",
-        "profile_image_url": "https://example.com/photo.jpg"
-      },
-      "company": {
-        "name": "Example Corp",
-        "website": "https://example.com",
-        "location": "Paris, France",
-        "industry": "Technology",
-        "description": "Description de l'entreprise",
-        "employee_range": "10-50",
-        "company_profile_picture": "https://example.com/logo.png"
-      }
-    }
-  ]
+  "alternative": {
+    "description": "Alternatives disponibles",
+    "suggestions": [
+      "Utilisez l'endpoint /api/pronto/searches pour voir les recherches existantes",
+      "Consultez /api/pronto/status pour voir l'état des services"
+    ],
+    "note": "Tous les endpoints d'extraction directe de leads sont actuellement indisponibles"
+  }
 }
 ```
 
@@ -188,10 +255,86 @@ Pour tester l'intégration :
 4. Utiliser le composant de test pour vérifier la connectivité
 5. Basculer vers "Pronto API" et tester l'affichage des données
 
+## 🚨 Changements Récents (2025-08-06)
+
+### Endpoints Modifiés par l'API Pronto
+
+L'API Pronto a subi des modifications importantes qui affectent plusieurs endpoints :
+
+#### ❌ Endpoints Supprimés
+- `/extract/leads/search` - Recherche directe de leads
+- `/leads/extract` - Extraction de leads avec filtres
+- `/extract/leads/from_company` - Leads par entreprise
+- `/searches/{id}/leads` - Leads d'une recherche spécifique
+
+#### ✅ Nouveaux Endpoints Disponibles
+- `POST /api/pronto/lists` - Création de listes d'entreprises
+- `GET /api/pronto/status` - Monitoring des services
+
+### Migration Nécessaire
+
+#### 1. Service ProntoService
+Le service doit être mis à jour pour :
+- Supprimer les appels aux endpoints indisponibles
+- Ajouter la gestion des nouveaux endpoints
+- Implémenter la gestion d'erreurs pour les services indisponibles
+
+```typescript
+// ❌ À supprimer
+static async getSearchLeads(searchId: string) {
+  // Cet endpoint ne fonctionne plus
+}
+
+// ✅ À ajouter
+static async createCompanyList(name: string, companies: Company[]) {
+  const response = await fetch('/api/pronto/lists', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, companies })
+  });
+  return response.json();
+}
+
+static async getServiceStatus() {
+  const response = await fetch('/api/pronto/status');
+  return response.json();
+}
+```
+
+#### 2. Composants Frontend
+- Mettre à jour les composants qui utilisent les endpoints supprimés
+- Ajouter des messages d'erreur informatifs
+- Implémenter des alternatives pour les fonctionnalités indisponibles
+
+#### 3. Gestion d'Erreurs
+Ajouter la gestion des erreurs 503 (Service Unavailable) :
+
+```typescript
+try {
+  const data = await ProntoService.getSearchLeads(searchId);
+} catch (error) {
+  if (error.status === 503) {
+    // Afficher un message d'indisponibilité avec alternatives
+    showServiceUnavailableMessage(error.alternatives);
+  }
+}
+```
+
 ## Développement futur
 
-- Pagination des résultats
-- Filtres avancés sur les données Pronto
-- Export des données sélectionnées
-- Synchronisation en temps réel
-- Cache des données pour améliorer les performances 
+### Priorités Immédiates
+- ✅ Migration vers les nouveaux endpoints disponibles
+- ✅ Implémentation de la création de listes d'entreprises
+- ⚠️ Remplacement des fonctionnalités d'extraction de leads
+
+### Fonctionnalités à Développer
+- Interface pour créer des listes d'entreprises
+- Monitoring en temps réel du statut des services
+- Cache des recherches existantes
+- Export des données disponibles
+- Système de notification pour les changements d'API
+
+### Fonctionnalités Suspendues
+- Pagination des leads (endpoint indisponible)
+- Filtres avancés sur l'extraction (endpoint indisponible)
+- Recherche directe de leads (endpoint indisponible)

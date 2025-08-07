@@ -11,7 +11,7 @@ export default defineConfig({
   server: {
     proxy: {
       '/api': {
-        target: 'https://prosperiantest1.onrender.com',
+        target: 'https://prosperian.onrender.com',
         changeOrigin: true,
         secure: false,
       },
@@ -34,7 +34,6 @@ export default defineConfig({
       "@hooks": path.resolve(__dirname, "./src/hooks"),
       "@config": path.resolve(__dirname, "./src/config"),
       "@components": path.resolve(__dirname, "./src/components"),
-      "@utils": path.resolve(__dirname, "./src/utils"),
     },
   },
 });

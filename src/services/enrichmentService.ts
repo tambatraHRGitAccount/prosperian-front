@@ -1,4 +1,4 @@
-const API_BASE_URL = 'https://prosperiantest1.onrender.com/api';
+const API_BASE_URL = 'https://prosperian.onrender.com/api';
 
 export interface Enrichment {
   id: string;

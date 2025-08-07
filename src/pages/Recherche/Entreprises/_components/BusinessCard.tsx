@@ -466,7 +466,7 @@ export const BusinessCard: React.FC<BusinessCardProps> = ({
             {(companyData as any).isEnriched && (
               <div className="flex items-center gap-1 mt-1">
                 <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                <span className="text-xs text-green-600 font-medium">Enrichi Pronto</span>
+                <span className="text-xs text-green-600 font-medium">Entreprise</span>
               </div>
             )}
           </div>

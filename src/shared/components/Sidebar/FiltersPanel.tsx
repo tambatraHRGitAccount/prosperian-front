@@ -19,6 +19,7 @@ import { apifyService } from '../../../services/apifyService';
 import { companyListService, CompanyListItem } from '../../../services/companyListService';
 import { contactListService, ContactListItem } from '../../../services/contactListService';
 import { ProntoSearchForm } from '../../../pages/Recherche/Contact/_components/ProntoSearchForm';
+import { LinkedInSalesModal } from './LinkedInSalesModal';
 
 interface RangeSliderProps {
   min: number;
@@ -154,6 +155,8 @@ export const FiltersPanel: React.FC<FiltersPanelProps> = ({
   onRemoveListFilter,
 }) => {
   console.log('FiltersPanel mounted');
+  console.log('🏙️ FilterPanel - availableCities reçues:', availableCities);
+  console.log('🏙️ FilterPanel - Nombre de villes reçues:', availableCities?.length || 0);
   const { setFilters } = useFilterContext();
   const location = useLocation();
   // Détecter la section par défaut selon la route
@@ -199,6 +202,16 @@ export const FiltersPanel: React.FC<FiltersPanelProps> = ({
   const [selectedSectors, setSelectedSectors] = useState<string[]>([]);
   const [sectorSearchTerm, setSectorSearchTerm] = useState('');
 
+  // States pour les listes Pronto
+  const [prontoLists, setProntoLists] = useState<any[]>([]);
+  const [loadingProntoLists, setLoadingProntoLists] = useState(false);
+  const [loadingListDetails, setLoadingListDetails] = useState<Set<string>>(new Set());
+  const [selectedProntoList, setSelectedProntoList] = useState<string | null>(null);
+
+  // States pour le modal LinkedIn Sales Navigator
+  const [showLinkedInModal, setShowLinkedInModal] = useState(false);
+  const [selectedListForLinkedIn, setSelectedListForLinkedIn] = useState<any>(null);
+
   // States pour les départements
   const [selectedDepartments, setSelectedDepartments] = useState<string[]>([]);
   const [departmentSearchTerm, setDepartmentSearchTerm] = useState('');
@@ -239,7 +252,7 @@ export const FiltersPanel: React.FC<FiltersPanelProps> = ({
       activites: isEntreprisePage,
       chiffres: false,
       forme: false,
-      localisation: false,
+      localisation: isEntreprisePage && availableCities.length > 0, // Ouvrir si des villes sont disponibles
       contact: isEntreprisePage,
     };
   });
@@ -247,7 +260,7 @@ export const FiltersPanel: React.FC<FiltersPanelProps> = ({
     return {
       entreprise: isContactPage,
       roles: isContactPage,
-      localisation: isContactPage,
+      localisation: isContactPage && availableCities.length > 0, // Ouvrir si des villes sont disponibles
     };
   });
 
@@ -262,6 +275,8 @@ export const FiltersPanel: React.FC<FiltersPanelProps> = ({
         activites: isEntreprisePage,
         chiffres: false,
         forme: false,
+        localisation: false,
+        contact: isEntreprisePage,
       };
     });
     setOpenContactFilters({
@@ -731,6 +746,129 @@ export const FiltersPanel: React.FC<FiltersPanelProps> = ({
       loadContacts(1, '');
     }
   }, [isEntreprisePage]);
+
+  // Fonction pour charger les détails d'une liste spécifique (lazy loading)
+  const loadListDetails = async (listId: string) => {
+    if (loadingListDetails.has(listId)) return;
+
+    // Marquer cette liste comme en cours de chargement
+    setLoadingListDetails(prev => new Set([...prev, listId]));
+
+    try {
+      const detailResponse = await fetch(`/api/pronto/lists/${listId}`, {
+        method: 'GET',
+        headers: {
+          'accept': 'application/json'
+        }
+      });
+
+      if (detailResponse.ok) {
+        const detailData = await detailResponse.json();
+        if (detailData.success && detailData.list) {
+          // Mettre à jour la liste spécifique avec ses détails
+          setProntoLists(prevLists =>
+            prevLists.map(list =>
+              list.id === listId
+                ? {
+                    ...list,
+                    companies_count: detailData.list.companies_count,
+                    companies: detailData.list.companies || [],
+                    detailsLoaded: true
+                  }
+                : list
+            )
+          );
+          console.log(`✅ Détails chargés pour la liste ${listId}: ${detailData.list.companies_count} entreprises`);
+        }
+      } else {
+        console.warn(`⚠️ Impossible de charger les détails de la liste ${listId}`);
+      }
+    } catch (error) {
+      console.warn(`⚠️ Erreur lors du chargement des détails de la liste ${listId}:`, error);
+    } finally {
+      // Retirer cette liste de la liste des chargements en cours
+      setLoadingListDetails(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(listId);
+        return newSet;
+      });
+    }
+  };
+
+  // Fonction pour charger les listes Pronto (affichage rapide puis lazy loading des détails)
+  const loadProntoLists = async () => {
+    if (loadingProntoLists) return;
+
+    setLoadingProntoLists(true);
+    try {
+      // Étape 1: Charger rapidement la liste des listes (affichage immédiat)
+      const response = await fetch('/api/pronto/lists', {
+        method: 'GET',
+        headers: {
+          'accept': 'application/json'
+        }
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        // La réponse a la structure { success: true, lists: [...] }
+        if (data.success && data.lists) {
+          // Afficher immédiatement les listes avec les données de base
+          setProntoLists(data.lists.map((list: any) => ({
+            ...list,
+            detailsLoaded: false // Indicateur que les détails ne sont pas encore chargés
+          })));
+          console.log('✅ Listes Pronto chargées (affichage rapide):', data.lists);
+
+          // Étape 2: Charger les détails de chaque liste une par une (lazy loading)
+          // Petit délai entre chaque chargement pour éviter de surcharger l'API
+          for (let i = 0; i < data.lists.length; i++) {
+            const list = data.lists[i];
+            // Délai progressif pour étaler les requêtes
+            setTimeout(() => {
+              loadListDetails(list.id);
+            }, i * 200); // 200ms entre chaque requête
+          }
+        } else {
+          console.warn('⚠️ Réponse inattendue de l\'API:', data);
+          setProntoLists([]);
+        }
+      } else {
+        console.error('❌ Erreur lors du chargement des listes Pronto');
+        setProntoLists([]);
+      }
+    } catch (error) {
+      console.error('❌ Erreur réseau lors du chargement des listes Pronto:', error);
+      setProntoLists([]);
+    } finally {
+      setLoadingProntoLists(false);
+    }
+  };
+
+  // Charger les listes Pronto au montage si on est sur la page contact
+  useEffect(() => {
+    if (isContactPage) {
+      loadProntoLists();
+    }
+  }, [isContactPage]);
+
+  // Debug et ouverture automatique de la section Localisation
+  useEffect(() => {
+    console.log('🏙️ FilterPanel - Villes disponibles:', availableCities);
+    console.log('🏙️ FilterPanel - Nombre de villes:', availableCities.length);
+
+    if (availableCities.length > 0) {
+      if (isEntreprisePage) {
+        setOpenEntrepriseFilters(prev => ({ ...prev, localisation: true }));
+      }
+      if (isContactPage) {
+        setOpenContactFilters(prev => ({ ...prev, localisation: true }));
+      }
+      console.log(`🏙️ Section Localisation ouverte automatiquement (${availableCities.length} villes disponibles)`);
+    } else {
+      console.log('⚠️ Aucune ville disponible dans le FilterPanel');
+    }
+  }, [availableCities, isEntreprisePage, isContactPage]);
 
   // Adapte MainSection pour accepter 'listes'
   const MainSection = ({
@@ -1338,7 +1476,14 @@ export const FiltersPanel: React.FC<FiltersPanelProps> = ({
                   className="w-full flex items-center justify-between py-2 text-left"
                   onClick={() => toggleEntrepriseFilter('localisation')}
                 >
-                  <span className="font-semibold">Localisation</span>
+                  <span className="font-semibold">
+                    Localisation
+                    {availableCities.length > 0 && (
+                      <span className="ml-2 text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full">
+                        {availableCities.length} villes
+                      </span>
+                    )}
+                  </span>
                   <ChevronDown
                     className={`w-5 h-5 text-gray-500 transition-transform ${openEntrepriseFilters.localisation ? 'rotate-180' : ''}`}
                   />
@@ -1347,7 +1492,14 @@ export const FiltersPanel: React.FC<FiltersPanelProps> = ({
                   <div className="pt-2 pb-4 space-y-6">
                     {/* Section Ville */}
                     <div className="space-y-2">
-                      <div className="font-semibold text-base text-gray-700 mb-1">Ville</div>
+                      <div className="font-semibold text-base text-gray-700 mb-1 flex items-center justify-between">
+                        <span>Ville</span>
+                        {availableCities.length > 0 && (
+                          <span className="text-xs bg-green-100 text-green-800 px-2 py-1 rounded-full">
+                            {availableCities.length} disponibles
+                          </span>
+                        )}
+                      </div>
                       <input
                         type="text"
                         placeholder="Rechercher une ville..."
@@ -1355,26 +1507,51 @@ export const FiltersPanel: React.FC<FiltersPanelProps> = ({
                         onChange={(e) => setCitySearchTerm(e.target.value)}
                         className="w-full p-2 border border-gray-300 rounded text-sm mb-2"
                       />
-                      <div className="max-h-64 overflow-y-auto border border-gray-200 rounded p-2 bg-white">
-                        {availableCities
-                          .filter(city => 
-                            !citySearchTerm || 
-                            city.toLowerCase().includes(citySearchTerm.toLowerCase())
-                          )
-                          .map((city) => (
-                            <label key={city} className="flex items-center space-x-2 text-sm cursor-pointer hover:bg-gray-50 rounded p-1">
-                              <input
-                                type="checkbox"
-                                checked={safeFilters.cities.includes(city)}
-                                onChange={() => toggleCity(city)}
-                                className="w-4 h-4 text-orange-600 rounded"
-                              />
-                              <span className="text-gray-700 flex items-center gap-1">
-                                <MapPin className="w-3 h-3" />
-                                {city}
-                              </span>
-                            </label>
-                          ))}
+                      <div className="min-h-[100px] max-h-96 overflow-y-auto border border-gray-200 rounded p-3 bg-white">
+                        {!availableCities || availableCities.length === 0 ? (
+                          <div className="text-center py-4 text-gray-500 text-sm">
+                            <MapPin className="w-6 h-6 mx-auto mb-2 text-gray-400" />
+                            Aucune ville disponible
+                            <div className="text-xs text-gray-400 mt-1">
+                              Debug: availableCities = {JSON.stringify(availableCities)}
+                            </div>
+                            <div className="text-xs text-gray-400 mt-1">
+                              Vérifiez la console pour plus de détails
+                            </div>
+                          </div>
+                        ) : (
+                          <>
+                            {availableCities
+                              .filter(city =>
+                                !citySearchTerm ||
+                                city.toLowerCase().includes(citySearchTerm.toLowerCase())
+                              )
+                              .map((city) => (
+                                <label key={city} className="flex items-center space-x-2 text-sm cursor-pointer hover:bg-gray-50 rounded p-2 transition-colors">
+                                  <input
+                                    type="checkbox"
+                                    checked={safeFilters.cities.includes(city)}
+                                    onChange={() => toggleCity(city)}
+                                    className="w-4 h-4 text-orange-600 rounded focus:ring-orange-500"
+                                  />
+                                  <span className="text-gray-700 flex items-center gap-2 flex-1">
+                                    <MapPin className="w-4 h-4 text-gray-400" />
+                                    <span className="font-medium">{city}</span>
+                                  </span>
+                                </label>
+                              ))}
+                            {availableCities
+                              .filter(city =>
+                                !citySearchTerm ||
+                                city.toLowerCase().includes(citySearchTerm.toLowerCase())
+                              ).length === 0 && citySearchTerm && (
+                              <div className="text-center py-4 text-gray-500 text-sm">
+                                <MapPin className="w-6 h-6 mx-auto mb-2 text-gray-400" />
+                                Aucune ville trouvée pour "{citySearchTerm}"
+                              </div>
+                            )}
+                          </>
+                        )}
                       </div>
                     </div>
 
@@ -1594,7 +1771,14 @@ export const FiltersPanel: React.FC<FiltersPanelProps> = ({
                   className="w-full flex items-center justify-between py-2 text-left"
                   onClick={() => toggleContactFilter('localisation')}
                 >
-                  <span className="font-semibold">Localisation</span>
+                  <span className="font-semibold">
+                    Localisation
+                    {availableCities.length > 0 && (
+                      <span className="ml-2 text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full">
+                        {availableCities.length} villes
+                      </span>
+                    )}
+                  </span>
                   <ChevronDown
                     className={`w-5 h-5 text-gray-500 transition-transform ${openContactFilters.localisation ? 'rotate-180' : ''}`}
                   />
@@ -1603,22 +1787,63 @@ export const FiltersPanel: React.FC<FiltersPanelProps> = ({
                   <div className="pt-2 pb-4 space-y-6">
                     {/* Section Ville */}
                     <div className="space-y-2">
-                      <div className="font-semibold text-base text-gray-700 mb-1">Ville</div>
-                      <div className="max-h-64 overflow-y-auto border border-gray-200 rounded p-2 bg-white">
-                        {availableCities.map((city) => (
-                          <label key={city} className="flex items-center space-x-2 text-sm cursor-pointer hover:bg-gray-50 rounded p-1">
-                            <input
-                              type="checkbox"
-                              checked={safeFilters.cities.includes(city)}
-                              onChange={() => toggleCity(city)}
-                              className="w-4 h-4 text-orange-600 rounded"
-                            />
-                            <span className="text-gray-700 flex items-center gap-1">
-                              <MapPin className="w-3 h-3" />
-                              {city}
-                            </span>
-                          </label>
-                        ))}
+                      <div className="font-semibold text-base text-gray-700 mb-1 flex items-center justify-between">
+                        <span>Ville</span>
+                        {availableCities.length > 0 && (
+                          <span className="text-xs bg-green-100 text-green-800 px-2 py-1 rounded-full">
+                            {availableCities.length} disponibles
+                          </span>
+                        )}
+                      </div>
+                      <input
+                        type="text"
+                        placeholder="Rechercher une ville..."
+                        value={citySearchTerm}
+                        onChange={(e) => setCitySearchTerm(e.target.value)}
+                        className="w-full p-2 border border-gray-300 rounded text-sm mb-2"
+                      />
+                      <div className="min-h-[100px] max-h-96 overflow-y-auto border border-gray-200 rounded p-3 bg-white">
+                        {!availableCities || availableCities.length === 0 ? (
+                          <div className="text-center py-4 text-gray-500 text-sm">
+                            <MapPin className="w-6 h-6 mx-auto mb-2 text-gray-400" />
+                            Aucune ville disponible
+                            <div className="text-xs text-gray-400 mt-1">
+                              Les villes apparaîtront après le chargement des données
+                            </div>
+                          </div>
+                        ) : (
+                          <>
+                            {availableCities
+                              .filter(city =>
+                                !citySearchTerm ||
+                                city.toLowerCase().includes(citySearchTerm.toLowerCase())
+                              )
+                              .map((city) => (
+                                <label key={city} className="flex items-center space-x-2 text-sm cursor-pointer hover:bg-gray-50 rounded p-2 transition-colors">
+                                  <input
+                                    type="checkbox"
+                                    checked={safeFilters.cities.includes(city)}
+                                    onChange={() => toggleCity(city)}
+                                    className="w-4 h-4 text-orange-600 rounded focus:ring-orange-500"
+                                  />
+                                  <span className="text-gray-700 flex items-center gap-2 flex-1">
+                                    <MapPin className="w-4 h-4 text-gray-400" />
+                                    <span className="font-medium">{city}</span>
+                                  </span>
+                                </label>
+                              ))}
+                            {availableCities
+                              .filter(city =>
+                                !citySearchTerm ||
+                                city.toLowerCase().includes(citySearchTerm.toLowerCase())
+                              ).length === 0 && citySearchTerm && (
+                              <div className="text-center py-4 text-gray-500 text-sm">
+                                <MapPin className="w-6 h-6 mx-auto mb-2 text-gray-400" />
+                                Aucune ville trouvée pour "{citySearchTerm}"
+                              </div>
+                            )}
+                          </>
+                        )}
                       </div>
                     </div>
 
@@ -1768,6 +1993,74 @@ export const FiltersPanel: React.FC<FiltersPanelProps> = ({
                   </div>
                 )}
               </div>
+
+              {/* Listes Pronto */}
+              {isContactPage && (
+                <div className="mb-2 border-b border-gray-100 last:border-b-0">
+                  <div className="py-2">
+                    <h3 className="font-semibold text-gray-900 mb-3">Listes d'entreprises</h3>
+
+                    {loadingProntoLists ? (
+                      <div className="text-center py-4">
+                        <span className="text-sm text-gray-500">Chargement des listes...</span>
+                      </div>
+                    ) : prontoLists.length > 0 ? (
+                      <div className="space-y-2">
+                        <div className="text-xs text-gray-600 mb-2">
+                          {prontoLists.length} liste(s) disponible(s)
+                        </div>
+
+                        <div className="max-h-64 overflow-y-auto space-y-1">
+                          {prontoLists.map((list) => {
+                            const isLoadingDetails = loadingListDetails.has(list.id);
+                            const hasDetails = list.detailsLoaded;
+
+                            return (
+                              <button
+                                key={list.id}
+                                onClick={() => {
+                                  setSelectedProntoList(list.id);
+                                  setSelectedListForLinkedIn(list);
+                                  setShowLinkedInModal(true);
+                                  console.log('Liste sélectionnée pour LinkedIn Sales Navigator:', list);
+                                }}
+                                className={`w-full text-left p-2 rounded text-sm hover:bg-gray-50 transition-colors ${
+                                  selectedProntoList === list.id
+                                    ? 'bg-blue-100 text-blue-800 border border-blue-300'
+                                    : 'text-gray-700'
+                                }`}
+                              >
+                                <div className="font-medium truncate flex items-center gap-2">
+                                  {list.name || 'Untitled'}
+                                  {isLoadingDetails && (
+                                    <div className="w-3 h-3 border border-gray-400 border-t-transparent rounded-full animate-spin"></div>
+                                  )}
+                                </div>
+                                <div className="text-xs text-gray-500 mt-1">
+                                  {isLoadingDetails ? (
+                                    <span className="text-gray-400">Chargement du nombre d'entreprises...</span>
+                                  ) : hasDetails ? (
+                                    <span>{list.companies_count} entreprise(s) • Type: {list.type}</span>
+                                  ) : (
+                                    <span>{list.companies_count || 0} entreprise(s) (estimation) • Type: {list.type}</span>
+                                  )}
+                                </div>
+                                <div className="text-xs text-gray-400 mt-1">
+                                  Créée le {new Date(list.created_at).toLocaleDateString("fr-FR")}
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="text-center py-4">
+                        <span className="text-sm text-gray-500">Aucune liste disponible</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
             </MainSection>
             <MainSection title="Entreprise" id="entreprise">
               {/* Entreprise */}
@@ -2025,6 +2318,16 @@ export const FiltersPanel: React.FC<FiltersPanelProps> = ({
           conventionListRef.current.scrollTop = lastConventionScrollTop.current;
         }
       })}
+
+      {/* Modal LinkedIn Sales Navigator */}
+      <LinkedInSalesModal
+        isOpen={showLinkedInModal}
+        onClose={() => {
+          setShowLinkedInModal(false);
+          setSelectedListForLinkedIn(null);
+        }}
+        selectedList={selectedListForLinkedIn}
+      />
     </>
   );
 };

@@ -17,7 +17,7 @@ export interface ContactListResponse {
 }
 
 class ContactListService {
-  private baseUrl = 'https://prosperian.onrender.com';
+  private baseUrl = 'http://localhost:4000';
 
   async getContacts(
     page: number = 1,

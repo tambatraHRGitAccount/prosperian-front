@@ -1,6 +1,7 @@
-import React from 'react';
-import { X, ExternalLink, User } from 'lucide-react';
+import React, { useState } from 'react';
+import { X, ExternalLink, User, Save } from 'lucide-react';
 import { ProntoGlobalResponse, ProntoLead } from '@services/prontoService';
+import { ListService } from '@services/listService';
 
 interface ProntoResultsPanelProps {
   results: ProntoGlobalResponse | null;
@@ -15,6 +16,78 @@ export const ProntoResultsPanel: React.FC<ProntoResultsPanelProps> = ({
   onClose,
   loading
 }) => {
+  // États pour la sauvegarde des personas
+  const [showSaveModal, setShowSaveModal] = useState(false);
+  const [listName, setListName] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
+
+  // Fonction pour ouvrir le modal de sauvegarde
+  const handleSavePersonas = () => {
+    if (!results || !results.leads || results.leads.length === 0) {
+      alert('Aucun lead à sauvegarder');
+      return;
+    }
+
+    // Générer un nom par défaut
+    const defaultName = `Leads ${new Date().toLocaleDateString('fr-FR')} - ${results.leads.length} personas`;
+    setListName(defaultName);
+    setSaveError('');
+    setShowSaveModal(true);
+  };
+
+  // Fonction pour sauvegarder les leads
+  const handleConfirmSave = async () => {
+    if (!listName.trim()) {
+      setSaveError('Le nom de la liste est requis');
+      return;
+    }
+
+    if (!results || !results.leads || results.leads.length === 0) {
+      setSaveError('Aucun lead à sauvegarder');
+      return;
+    }
+
+    setIsSaving(true);
+    setSaveError('');
+
+    try {
+      console.log('💾 Sauvegarde des leads:', {
+        nom: listName.trim(),
+        nombreLeads: results.leads.length,
+        leads: results.leads
+      });
+
+      const savedList = await ListService.createLeadsListFromPronto(
+        listName.trim(),
+        results.leads
+      );
+
+      console.log('✅ Liste de leads sauvegardée:', savedList);
+
+      // Fermer le modal et réinitialiser
+      setShowSaveModal(false);
+      setListName('');
+      setSaveError('');
+
+      // Afficher un message de succès
+      alert(`Liste "${listName}" sauvegardée avec succès ! Elle contient ${savedList.elements} lead(s).`);
+
+    } catch (error) {
+      console.error('❌ Erreur lors de la sauvegarde des leads:', error);
+      setSaveError('Erreur lors de la sauvegarde. Veuillez réessayer.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // Fonction pour annuler la sauvegarde
+  const handleCancelSave = () => {
+    setShowSaveModal(false);
+    setListName('');
+    setSaveError('');
+  };
+
   if (!isVisible) return null;
 
   const handleLinkedInClick = (linkedinUrl?: string) => {
@@ -76,8 +149,12 @@ export const ProntoResultsPanel: React.FC<ProntoResultsPanelProps> = ({
         <div className="flex items-center space-x-3">
           <h2 className="text-lg font-semibold text-gray-900">Results</h2>
           {results && (
-            <button className="px-3 py-1 bg-blue-600 text-white text-sm rounded-md hover:bg-blue-700 transition-colors">
-              Save Persona
+            <button
+              onClick={handleSavePersonas}
+              className="px-3 py-1 bg-blue-600 text-white text-sm rounded-md hover:bg-blue-700 transition-colors flex items-center gap-2"
+            >
+              <Save className="w-4 h-4" />
+              Save Personas
             </button>
           )}
         </div>
@@ -248,6 +325,78 @@ export const ProntoResultsPanel: React.FC<ProntoResultsPanelProps> = ({
         )}
       </div>
     </div>
+
+    {/* Modal de sauvegarde */}
+    {showSaveModal && (
+      <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black bg-opacity-50">
+        <div className="bg-white rounded-lg shadow-2xl max-w-md w-full mx-4">
+          {/* Header */}
+          <div className="flex items-center justify-between p-6 border-b border-gray-200">
+            <h3 className="text-lg font-semibold text-gray-900">
+              Sauvegarder les personas
+            </h3>
+            <button
+              onClick={handleCancelSave}
+              className="p-2 hover:bg-gray-100 rounded-md transition-colors"
+            >
+              <X className="w-5 h-5 text-gray-500" />
+            </button>
+          </div>
+
+          {/* Content */}
+          <div className="p-6">
+            <div className="mb-4">
+              <p className="text-sm text-gray-600 mb-4">
+                Vous allez sauvegarder <span className="font-semibold">{results?.leads?.length || 0} personas</span> dans une nouvelle liste.
+              </p>
+
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Nom de la liste *
+              </label>
+              <input
+                type="text"
+                value={listName}
+                onChange={(e) => setListName(e.target.value)}
+                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                placeholder="Ex: Leads développeurs Paris - Janvier 2025"
+                disabled={isSaving}
+              />
+
+              {saveError && (
+                <p className="text-red-600 text-sm mt-2">{saveError}</p>
+              )}
+            </div>
+
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4">
+              <p className="text-sm text-blue-800">
+                <strong>Informations sauvegardées :</strong> Nom, prénom, titre, entreprise, localisation, URL LinkedIn, et autres données disponibles.
+              </p>
+            </div>
+          </div>
+
+          {/* Footer */}
+          <div className="flex items-center justify-end gap-3 p-6 border-t border-gray-200">
+            <button
+              onClick={handleCancelSave}
+              disabled={isSaving}
+              className="px-4 py-2 text-gray-700 border border-gray-300 rounded-md hover:bg-gray-50 transition-colors disabled:opacity-50"
+            >
+              Annuler
+            </button>
+            <button
+              onClick={handleConfirmSave}
+              disabled={isSaving || !listName.trim()}
+              className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+            >
+              {isSaving && (
+                <div className="w-4 h-4 border border-white border-t-transparent rounded-full animate-spin"></div>
+              )}
+              {isSaving ? 'Sauvegarde...' : 'Sauvegarder'}
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
     </>
   );
 };

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { EntrepriseApiResponse, EntrepriseApiResult, ProntoLeadWithCompany } from "@entities/Business";
 import { MainContent } from "./_components/MainContent";
 import { RightPanel } from "./_components/RightPanel";
@@ -6,12 +6,19 @@ import { useProntoData } from "@hooks/useProntoData";
 import { useFilterContext } from "@contexts/FilterContext";
 import { BarChart3 } from "lucide-react";
 import francePostalCodes from '@data/france_postal_codes.json';
+
+// Fonction utilitaire pour obtenir toutes les villes françaises
+const getAllFrenchCities = () => {
+  const cities = francePostalCodes.map(item => item.titre).sort();
+  console.log('🏙️ getAllFrenchCities - Villes chargées:', cities.length);
+  return cities;
+};
 import { googlePlacesService } from "@services/googlePlacesService";
 import { semanticService } from "@services/semanticService";
 import { apifyService } from "@services/apifyService";
 
 const API_URL =
-  "https://prosperian.onrender.com/api/search?section_activite_principale=A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q,R,S,T,U";
+  "http://localhost:4000/api/search?section_activite_principale=A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q,R,S,T,U";
 
 export const Entreprises = () => {
   const [businesses, setBusinesses] = useState<EntrepriseApiResult[]>([]);
@@ -22,6 +29,13 @@ export const Entreprises = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { filters } = useFilterContext();
+
+  // Calculer les villes françaises une seule fois
+  const availableCities = useMemo(() => {
+    const cities = getAllFrenchCities();
+    console.log('🏙️ Entreprises Page - Villes calculées avec useMemo:', cities.length);
+    return cities;
+  }, []);
 
   // Pronto data
   const { leads: prontoLeads } = useProntoData();
@@ -424,9 +438,18 @@ export const Entreprises = () => {
         totalBusinesses={totalResults}
         filters={filters}
         onFiltersChange={() => {}}
-        availableCities={[]}
-        availableLegalForms={[]}
-        availableRoles={[]}
+        availableCities={getAllFrenchCities()}
+        availableLegalForms={Array.from(new Set(
+          businesses
+            .map(business => business.nature_juridique)
+            .filter(form => form && form.trim().length > 0)
+        )).sort()}
+        availableRoles={Array.from(new Set(
+          businesses
+            .flatMap(business => business.dirigeants || [])
+            .map(dirigeant => dirigeant.qualite)
+            .filter(role => role && role.trim().length > 0)
+        )).sort()}
         employeeRange={[0, 5000]}
         revenueRange={[0, 1000000]}
         ageRange={[0, 50]}

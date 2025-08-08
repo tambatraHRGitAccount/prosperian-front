@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { Download, ArrowLeft, FileText } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
-const API_URL = 'https://prosperian.onrender.com/api/search';
+const API_URL = 'http://localhost:4000/api/search';
 
 // Interface pour la réponse de l'endpoint d'enrichissement Pronto
 interface ProntoEnrichmentResponse {
@@ -105,7 +105,7 @@ const enrichWithPronto = async (companyName: string): Promise<ProntoEnrichmentRe
   }
   
   try {
-    const response = await fetch(`https://prosperian.onrender.com/api/pronto/companies/enrich?name=${encodeURIComponent(companyName)}`, {
+    const response = await fetch(`/api/pronto/companies/enrich?name=${encodeURIComponent(companyName)}`, {
       method: 'GET',
       headers: {
         'accept': 'application/json'

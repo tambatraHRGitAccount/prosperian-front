@@ -1,7 +1,7 @@
 // Configuration des URLs API selon l'environnement
 export const API_CONFIG = {
   // URL de base pour les API
-  BASE_URL: import.meta.env.VITE_API_BASE_URL || 'https://prosperian.onrender.com',
+  BASE_URL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000',
   
   // Endpoints Pronto
   PRONTO: {

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { Building, Globe, Eye, User, Mail, Phone, MapPin, BarChart3 } from "lucide-react";
 import { useFilterContext } from "@contexts/FilterContext";
 import ContactOptions from "./_components/ContactOptions";
@@ -7,6 +7,13 @@ import { ProntoResultsPanel } from "./_components/ProntoResultsPanel";
 import { useNavigate } from 'react-router-dom';
 import { ExportService } from '@services/exportService';
 import francePostalCodes from '@data/france_postal_codes.json';
+
+// Fonction utilitaire pour obtenir toutes les villes françaises
+const getAllFrenchCities = () => {
+  const cities = francePostalCodes.map(item => item.titre).sort();
+  console.log('🏙️ getAllFrenchCities - Villes chargées:', cities.length);
+  return cities;
+};
 import { googlePlacesService } from "@services/googlePlacesService";
 import { semanticService } from "@services/semanticService";
 import { apifyService } from "@services/apifyService";
@@ -135,7 +142,7 @@ const setCachedEnrichment = (companyName: string, data: ProntoEnrichmentResponse
   console.log(`💾 Données Pronto mises en cache pour: ${companyName}`);
 };
 
-const API_URL = "https://prosperian.onrender.com/api/search?section_activite_principale=A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q,R,S,T,U";
+const API_URL = "http://localhost:4000/api/search?section_activite_principale=A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q,R,S,T,U";
 
 export const Contact: React.FC = () => {
   const navigate = useNavigate();
@@ -170,6 +177,13 @@ export const Contact: React.FC = () => {
   const [prontoLoading, setProntoLoading] = useState(false);
   const [showProntoResults, setShowProntoResults] = useState(false);
 
+  // Calculer les villes françaises une seule fois
+  const availableCities = useMemo(() => {
+    const cities = getAllFrenchCities();
+    console.log('🏙️ Contact Page - Villes calculées avec useMemo:', cities.length);
+    return cities;
+  }, []);
+
   // Utiliser le contexte global du RightPanel
   // const { isRightPanelVisible } = useRightPanel(); // This line is removed as per the new_code
 
@@ -190,7 +204,7 @@ export const Contact: React.FC = () => {
     setEnrichmentLoading(prev => ({ ...prev, [companyName]: true }));
 
     try {
-      const response = await fetch(`https://prosperian.onrender.com/api/pronto/companies/enrich?name=${encodeURIComponent(companyName)}`, {
+      const response = await fetch(`/api/pronto/companies/enrich?name=${encodeURIComponent(companyName)}`, {
         method: 'GET',
         headers: {
           'accept': 'application/json'
@@ -199,13 +213,23 @@ export const Contact: React.FC = () => {
 
       if (response.ok) {
         const data = await response.json();
-        
-        // Mettre en cache localStorage et state
-        setCachedEnrichment(companyName, data);
-        setEnrichmentCache(prev => ({ ...prev, [companyName]: data }));
-        
-        console.log(`✅ Enrichissement Pronto réussi pour: ${companyName}`);
-        return data;
+
+        // Vérifier que la réponse contient des données d'entreprise
+        if (data.success && data.company) {
+          // Mettre en cache localStorage et state
+          setCachedEnrichment(companyName, data);
+          setEnrichmentCache(prev => ({ ...prev, [companyName]: data }));
+
+          console.log(`✅ Enrichissement Pronto réussi pour: ${companyName}`, {
+            name: data.company.name,
+            industry: data.company.industry,
+            employeeCount: data.company.employeeCount,
+            website: data.company.website
+          });
+          return data;
+        } else {
+          console.warn(`⚠️ Réponse Pronto sans données pour: ${companyName}`, data);
+        }
       }
     } catch (error) {
       console.error(`❌ Erreur lors de l'enrichissement Pronto pour ${companyName}:`, error);
@@ -274,16 +298,22 @@ export const Contact: React.FC = () => {
   // Fonction pour convertir les entreprises en contacts (sans attendre l'enrichissement Pronto)
   const convertEntreprisesToContacts = (entreprises: any[]): ContactEnrichi[] => {
     const contacts: ContactEnrichi[] = [];
-    
+    let contactIndex = 0; // Index pour garantir l'unicité
+
     for (const entreprise of entreprises) {
       const dirigeants = extractDirigeants(entreprise);
-      
+
       for (const dirigeant of dirigeants) {
         // Utiliser nom_raison_sociale pour l'enrichissement Pronto, sinon nom_complet
         const enrichmentName = entreprise.nom_raison_sociale || entreprise.nom_complet;
-        
+
+        // Créer un ID unique en gérant les valeurs undefined
+        const nom = dirigeant.nom || 'nom_inconnu';
+        const prenoms = dirigeant.prenoms || 'prenom_inconnu';
+        const siren = entreprise.siren || 'siren_inconnu';
+
         const contact: ContactEnrichi = {
-          id: `${entreprise.siren}_${dirigeant.nom}_${dirigeant.prenoms}`,
+          id: `${siren}_${nom}_${prenoms}_${contactIndex}`, // Ajouter un index pour garantir l'unicité
           role: dirigeant.qualite,
           entreprise: entreprise.nom_complet, // Affichage : nom_complet
           nom: dirigeant.nom,
@@ -303,11 +333,12 @@ export const Contact: React.FC = () => {
           activite_principale: entreprise.activite_principale,
           nom_raison_sociale: enrichmentName // Nom utilisé pour l'enrichissement Pronto
         };
-        
+
         contacts.push(contact);
+        contactIndex++; // Incrémenter l'index pour le prochain contact
       }
     }
-    
+
     return contacts;
   };
 
@@ -315,19 +346,46 @@ export const Contact: React.FC = () => {
   const getEnrichedContactData = (contact: ContactEnrichi) => {
     // Utiliser nom_raison_sociale pour l'enrichissement, sinon nom_complet
     const enrichmentKey = contact.nom_raison_sociale || contact.entreprise;
-    const prontoData = enrichmentCache[enrichmentKey];
+    const prontoResponse = enrichmentCache[enrichmentKey];
     const isLoading = enrichmentLoading[enrichmentKey];
-    
+
+    // Extraire les données de l'entreprise de la nouvelle structure de réponse
+    const companyData = prontoResponse?.company;
+
+    // Construire l'URL du logo à partir de la nouvelle structure
+    let logoUrl = contact.logo;
+    if (companyData?.companyPictureDisplayImage) {
+      const artifacts = companyData.companyPictureDisplayImage.artifacts;
+      const rootUrl = companyData.companyPictureDisplayImage.rootUrl;
+      // Prendre l'image de taille moyenne (200x200 ou la première disponible)
+      const artifact = artifacts?.find((a: any) => a.width === 200) || artifacts?.[0];
+      if (artifact && rootUrl) {
+        logoUrl = `${rootUrl}${artifact.fileIdentifyingUrlPathSegment}`;
+      }
+    }
+
+    // Calculer le CA à partir du range de revenus
+    let estimatedRevenue = contact.ca;
+    if (companyData?.revenueRange) {
+      const minRevenue = companyData.revenueRange.estimatedMinRevenue;
+      const maxRevenue = companyData.revenueRange.estimatedMaxRevenue;
+      if (minRevenue && maxRevenue) {
+        // Prendre la moyenne et convertir en euros (approximation)
+        const avgRevenueUSD = (minRevenue.amount + maxRevenue.amount) / 2;
+        const multiplier = minRevenue.unit === 'MILLION' ? 1000000 : 1;
+        estimatedRevenue = avgRevenueUSD * multiplier * 0.85; // Conversion USD -> EUR approximative
+      }
+    }
+
     return {
       ...contact,
-      website: prontoData?.website || contact.website,
-      logo: prontoData?.companyPictureDisplayImage ? 
-        `${prontoData.companyPictureDisplayImage.rootUrl}${prontoData.companyPictureDisplayImage.artifacts[0]?.fileIdentifyingUrlPathSegment}` : contact.logo,
-      ca: prontoData?.revenue || contact.ca,
-      employeesCount: prontoData?.employeeCount || contact.employeesCount,
-      industry: prontoData?.industry || contact.industry,
-      description: prontoData?.description || contact.description,
-      isEnriched: !!prontoData?.found,
+      website: companyData?.website || contact.website,
+      logo: logoUrl,
+      ca: estimatedRevenue,
+      employeesCount: companyData?.employeeCount || contact.employeesCount,
+      industry: companyData?.industry || contact.industry,
+      description: companyData?.description || contact.description,
+      isEnriched: !!companyData,
       isLoading
     };
   };
@@ -1200,9 +1258,17 @@ export const Contact: React.FC = () => {
             totalContacts={totalResults}
             filters={filters}
             onFiltersChange={() => {}}
-            availableCities={[]}
-            availableLegalForms={[]}
-            availableRoles={[]}
+            availableCities={availableCities}
+            availableLegalForms={Array.from(new Set(
+              contacts
+                .map(contact => contact.nature_juridique)
+                .filter(form => form && form.trim().length > 0)
+            )).sort()}
+            availableRoles={Array.from(new Set(
+              contacts
+                .map(contact => contact.role)
+                .filter(role => role && role.trim().length > 0)
+            )).sort()}
             employeeRange={[0, 5000]}
             revenueRange={[0, 1000000]}
             ageRange={[0, 50]}

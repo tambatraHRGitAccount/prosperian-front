@@ -1,4 +1,4 @@
-const API_BASE_URL = 'https://prosperian.onrender.com/api';
+const API_BASE_URL = 'http://localhost:4000/api';
 
 export interface Subscription {
   id: string;

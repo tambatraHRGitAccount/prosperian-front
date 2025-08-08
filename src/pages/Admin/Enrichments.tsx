@@ -87,7 +87,7 @@ const AdminEnrichments: React.FC = () => {
       };
       
       console.log('📤 Envoi vers Pronto API:', prontoData);
-      console.log('🔗 URL:', 'https://prosperian.onrender.com/api/pronto/enrichments/contacts/bulk');
+      console.log('🔗 URL:', 'http://localhost:4000/api/pronto/enrichments/contacts/bulk');
       
       // Envoyer vers l'API Pronto
       const prontoResponse = await sendEnrichmentToPronto(prontoData);

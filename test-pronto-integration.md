@@ -36,7 +36,7 @@
 ```bash
 cd prosperian-back
 npm start
-# Le serveur doit être accessible sur https://prosperian.onrender.com
+# Le serveur doit être accessible sur http://localhost:4000
 ```
 
 ### 2. Démarrer le Frontend

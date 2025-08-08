@@ -14,7 +14,7 @@ export interface CompanyListResponse {
 }
 
 class CompanyListService {
-  private baseUrl = 'https://prosperian.onrender.com';
+  private baseUrl = 'http://localhost:4000';
 
   async getCompanies(
     page: number = 1,

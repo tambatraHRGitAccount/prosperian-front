@@ -13,29 +13,52 @@ interface BusinessCardProps {
   loading?: boolean;
 }
 
-// Interface pour la réponse de l'endpoint d'enrichissement Pronto
+// Interface pour la réponse de l'endpoint d'enrichissement Pronto (nouvelle structure)
 interface ProntoEnrichmentResponse {
-  found: boolean;
-  name?: string;
-  description?: string;
-  industry?: string;
-  website?: string;
-  employeeCount?: number;
-  headquarters?: {
-    city?: string;
-    country?: string;
-    line1?: string;
-    postalCode?: string;
+  success: boolean;
+  company?: {
+    name: string;
+    description?: string;
+    industry?: string;
+    website?: string;
+    employeeCount?: number;
+    employeeDisplayCount?: string;
+    employeeCountRange?: string;
+    type?: string;
+    yearFounded?: number;
+    location?: string;
+    headquarters?: {
+      city?: string;
+      country?: string;
+      line1?: string;
+      postalCode?: string;
+      geographicArea?: string;
+    };
+    companyPictureDisplayImage?: {
+      artifacts: Array<{
+        width: number;
+        height: number;
+        fileIdentifyingUrlPathSegment: string;
+      }>;
+      rootUrl: string;
+    };
+    revenueRange?: {
+      estimatedMinRevenue?: {
+        currencyCode: string;
+        amount: number;
+        unit: string;
+      };
+      estimatedMaxRevenue?: {
+        currencyCode: string;
+        amount: number;
+        unit: string;
+      };
+    };
+    specialties?: string[];
+    flagshipCompanyUrl?: string;
+    entityUrn?: string;
   };
-  companyPictureDisplayImage?: {
-    artifacts: Array<{
-      width: number;
-      height: number;
-      fileIdentifyingUrlPathSegment: string;
-    }>;
-    rootUrl: string;
-  };
-  // Autres champs possibles...
+  message?: string;
 }
 
 // Interface pour le stockage localStorage
@@ -187,7 +210,7 @@ export const BusinessCard: React.FC<BusinessCardProps> = ({
     
     setEnrichmentLoading(true);
     try {
-      const response = await fetch(`https://prosperian.onrender.com/api/pronto/companies/enrich?name=${encodeURIComponent(companyName)}`, {
+      const response = await fetch(`/api/pronto/companies/enrich?name=${encodeURIComponent(companyName)}`, {
         method: 'GET',
         headers: {
           'accept': 'application/json'
@@ -196,15 +219,20 @@ export const BusinessCard: React.FC<BusinessCardProps> = ({
       
       if (response.ok) {
         const data: ProntoEnrichmentResponse = await response.json();
-        
-        // Mettre en cache même si found: false (pour éviter de refaire l'appel)
+
+        // Mettre en cache même si success: false (pour éviter de refaire l'appel)
         setCachedEnrichment(companyName, data);
-        
-        if (data.found) {
+
+        if (data.success && data.company) {
           setProntoEnrichment(data);
-          // console.log(`✅ Enrichissement Pronto réussi pour: ${companyName}`);
+          console.log(`✅ Enrichissement Pronto réussi pour: ${companyName}`, {
+            name: data.company.name,
+            industry: data.company.industry,
+            employeeCount: data.company.employeeCount,
+            website: data.company.website
+          });
         } else {
-          console.log(`⚠️ Aucune donnée Pronto trouvée pour: ${companyName}`);
+          console.log(`⚠️ Aucune donnée Pronto trouvée pour: ${companyName}`, data);
         }
       } else {
         console.error(`❌ Erreur lors de l'enrichissement Pronto pour: ${companyName}`);
@@ -222,26 +250,50 @@ export const BusinessCard: React.FC<BusinessCardProps> = ({
       // Mapping pour EntrepriseApiResult enrichi
       const mapped = mapEntrepriseApiResultToCardData(company);
       
-      // Enrichir avec les données Pronto si disponibles
-      const enrichedDescription = prontoEnrichment?.description || mapped.description;
-      const enrichedIndustry = prontoEnrichment?.industry || mapped.activity;
-      const enrichedWebsite = prontoEnrichment?.website || mapped.website;
-      const enrichedEmployeeCount = prontoEnrichment?.employeeCount || mapped.employeeCount;
-      
-      // Construire l'URL du logo Pronto
-      const prontoLogoUrl = prontoEnrichment?.companyPictureDisplayImage ? 
-        buildProntoLogoUrl(prontoEnrichment.companyPictureDisplayImage) : null;
-      
+      // Enrichir avec les données Pronto si disponibles (nouvelle structure)
+      const companyData = prontoEnrichment?.company;
+      const enrichedDescription = companyData?.description || mapped.description;
+      const enrichedIndustry = companyData?.industry || mapped.activity;
+      const enrichedWebsite = companyData?.website || mapped.website;
+      const enrichedEmployeeCount = companyData?.employeeCount || mapped.employeeCount;
+
+      // Construire l'URL du logo Pronto avec la nouvelle structure
+      let prontoLogoUrl = null;
+      if (companyData?.companyPictureDisplayImage) {
+        const artifacts = companyData.companyPictureDisplayImage.artifacts;
+        const rootUrl = companyData.companyPictureDisplayImage.rootUrl;
+        // Prendre l'image de taille moyenne (200x200 ou la première disponible)
+        const artifact = artifacts?.find((a: any) => a.width === 200) || artifacts?.[0];
+        if (artifact && rootUrl) {
+          prontoLogoUrl = `${rootUrl}${artifact.fileIdentifyingUrlPathSegment}`;
+        }
+      }
+
+      // Calculer le CA à partir du range de revenus
+      let estimatedRevenue = mapped.revenue;
+      if (companyData?.revenueRange) {
+        const minRevenue = companyData.revenueRange.estimatedMinRevenue;
+        const maxRevenue = companyData.revenueRange.estimatedMaxRevenue;
+        if (minRevenue && maxRevenue) {
+          // Prendre la moyenne et convertir en euros (approximation)
+          const avgRevenueUSD = (minRevenue.amount + maxRevenue.amount) / 2;
+          const multiplier = minRevenue.unit === 'MILLION' ? 1000000 : 1;
+          estimatedRevenue = avgRevenueUSD * multiplier * 0.85; // Conversion USD -> EUR approximative
+        }
+      }
+
       return {
         ...mapped,
         description: enrichedDescription,
         activity: enrichedIndustry,
         website: enrichedWebsite,
         employeeCount: enrichedEmployeeCount,
+        revenue: estimatedRevenue,
+        foundedYear: companyData?.yearFounded || mapped.foundedYear,
         // Utiliser le logo Pronto s'il est disponible, sinon le logo existant
         logo: prontoLogoUrl || mapped.logo,
         // Indicateur que l'entreprise a été enrichie
-        isEnriched: prontoEnrichment?.found || false
+        isEnriched: !!(prontoEnrichment?.success && companyData)
       };
     }
     if (isProntoData && 'company' in company) {
@@ -466,7 +518,7 @@ export const BusinessCard: React.FC<BusinessCardProps> = ({
             {(companyData as any).isEnriched && (
               <div className="flex items-center gap-1 mt-1">
                 <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                <span className="text-xs text-green-600 font-medium">Entreprise</span>
+                <span className="text-xs text-green-600 font-medium">Enrichi Pronto</span>
               </div>
             )}
           </div>

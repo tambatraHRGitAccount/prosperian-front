@@ -185,7 +185,7 @@ const TestProntoModal: React.FC = () => {
               <h2 className="text-lg font-semibold text-gray-800 mb-4">🔗 Liens Utiles</h2>
               <div className="space-y-2">
                 <a 
-                  href="https://prosperian.onrender.com/api-docs" 
+                  href="http://localhost:4000/api-docs" 
                   target="_blank" 
                   rel="noopener noreferrer"
                   className="block text-blue-600 hover:text-blue-800 underline"
@@ -193,7 +193,7 @@ const TestProntoModal: React.FC = () => {
                   📚 Documentation Swagger API
                 </a>
                 <a 
-                  href="https://prosperian.onrender.com/api/pronto/status" 
+                  href="http://localhost:4000/api/pronto/status" 
                   target="_blank" 
                   rel="noopener noreferrer"
                   className="block text-blue-600 hover:text-blue-800 underline"
